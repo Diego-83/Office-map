@@ -1,27 +1,35 @@
 /**
  * Менеджер данных - управление хранением и обработкой данных
- * ДОПОЛНЕННЫЙ ДЛЯ РАБОТЫ С ГРАФОВОЙ СИСТЕМОЙ
+ * ПОЛНОСТЬЮ ПЕРЕПИСАННАЯ ВЕРСИЯ с гарантированным сохранением данных
  */
 
 class DataManager {
     constructor() {
+        console.log('Создание DataManager...');
+        
         this.data = {
             rooms: [],
             points: [],
-            routes: [],
-            routePoints: [],
-            // Новые структуры для графа
-            graphNodes: [],    // Узлы графа (точки маршрутизации)
-            graphEdges: [],    // Рёбра графа (соединения между узлами)
+            connections: [],
+            imagePath: 'img/plan.png',
             metadata: {
-                version: '2.0',
+                version: '4.0',
                 lastModified: new Date().toISOString(),
                 created: new Date().toISOString()
             }
         };
         
+        // Кэш для быстрого доступа
+        this.cache = {
+            rooms: new Map(),
+            points: new Map(),
+            connections: new Map()
+        };
+        
         this.loadData();
     }
+
+    // ========== БАЗОВЫЕ МЕТОДЫ ==========
 
     /**
      * Загрузка данных из localStorage
@@ -30,140 +38,219 @@ class DataManager {
         try {
             const savedData = Utils.loadFromLocalStorage('office_map_data');
             if (savedData) {
-                // Миграция данных из старой версии
                 this.migrateData(savedData);
-                console.log('Данные загружены из localStorage:', {
-                    rooms: this.data.rooms.length,
-                    points: this.data.points.length,
-                    routes: this.data.routes.length,
-                    graphNodes: this.data.graphNodes.length,
-                    graphEdges: this.data.graphEdges.length
-                });
+                this.updateCache();
+                console.log('✅ Данные загружены:', this.getStats());
             } else {
-                console.log('Данные не найдены, инициализирую пустые');
+                console.log('📝 Данные не найдены, инициализация пустых');
+                this.saveData();
             }
         } catch (error) {
-            console.error('Ошибка загрузки данных:', error);
+            console.error('❌ Ошибка загрузки данных:', error);
         }
     }
 
     /**
-     * Миграция данных из старой версии
-     * @param {object} savedData - Загруженные данные
+     * Обновление кэша
      */
-    migrateData(savedData) {
-        // Копируем основные данные
-        this.data.rooms = savedData.rooms || [];
-        this.data.points = savedData.points || [];
-        this.data.routes = savedData.routes || [];
-        this.data.routePoints = savedData.routePoints || [];
+    updateCache() {
+        // Очищаем кэш
+        this.cache.rooms.clear();
+        this.cache.points.clear();
+        this.cache.connections.clear();
         
-        // Мигрируем точки в узлы графа
-        if (savedData.points && savedData.points.length > 0 && !savedData.graphNodes) {
-            console.log('Миграция точек в узлы графа...');
-            this.data.graphNodes = savedData.points.map(point => ({
-                id: point.id,
-                name: point.name,
-                type: point.type === 'door' ? 'door' : 'point_of_interest',
-                category: 'point',
-                color: point.color,
-                y: point.y,
-                x: point.x,
-                isDraggable: true,
-                metadata: {
-                    originalPointId: point.id,
-                    isRoutingPoint: true,
-                    description: point.description || ''
-                }
-            }));
-        } else {
-            this.data.graphNodes = savedData.graphNodes || [];
-        }
+        // Заполняем кэш
+        this.data.rooms.forEach(room => this.cache.rooms.set(room.id, room));
+        this.data.points.forEach(point => this.cache.points.set(point.id, point));
+        this.data.connections.forEach(conn => this.cache.connections.set(conn.id, conn));
         
-        // Мигрируем маршруты в рёбра графа
-        if (savedData.routes && savedData.routes.length > 0 && !savedData.graphEdges) {
-            console.log('Миграция маршрутов в рёбра графа...');
-            this.data.graphEdges = [];
-            // TODO: более сложная миграция маршрутов в рёбра
-        } else {
-            this.data.graphEdges = savedData.graphEdges || [];
-        }
-        
-        // Сохраняем метаданные
-        this.data.metadata = {
-            version: '2.0',
-            lastModified: new Date().toISOString(),
-            created: savedData.metadata?.created || new Date().toISOString()
-        };
+        console.log('🔄 Кэш обновлен:', {
+            rooms: this.cache.rooms.size,
+            points: this.cache.points.size,
+            connections: this.cache.connections.size
+        });
     }
 
     /**
-     * Сохранение данных в localStorage
-     * @returns {boolean} Успешно ли сохранено
+     * Сохранение данных
      */
     saveData() {
         try {
             this.data.metadata.lastModified = new Date().toISOString();
+            
+            // Проверяем целостность данных
+            this.validateDataIntegrity();
+            
+            // Сохраняем
             const success = Utils.saveToLocalStorage('office_map_data', this.data);
             
             if (success) {
-                console.log('Данные сохранены:', {
-                    rooms: this.data.rooms.length,
-                    points: this.data.points.length,
-                    routes: this.data.routes.length,
-                    graphNodes: this.data.graphNodes.length,
-                    graphEdges: this.data.graphEdges.length
-                });
+                console.log('💾 Данные сохранены:', this.getStats());
                 return true;
-            } else {
-                console.error('Не удалось сохранить данные');
-                return false;
             }
+            return false;
         } catch (error) {
-            console.error('Ошибка сохранения данных:', error);
+            console.error('❌ Ошибка сохранения:', error);
             return false;
         }
     }
 
     /**
-     * Получение всех данных
-     * @returns {object} Все данные
+     * Проверка целостности данных
      */
-    getData() {
-        return Utils.deepCopy(this.data);
+    validateDataIntegrity() {
+        // Удаляем соединения с несуществующими точками
+        const before = this.data.connections.length;
+        this.data.connections = this.data.connections.filter(conn => {
+            const fromExists = this.cache.points.has(conn.from);
+            const toExists = this.cache.points.has(conn.to);
+            
+            if (!fromExists || !toExists) {
+                console.warn('⚠️ Удалено поврежденное соединение:', conn.id);
+                return false;
+            }
+            return true;
+        });
+        
+        if (this.data.connections.length !== before) {
+            console.warn(`⚠️ Удалено ${before - this.data.connections.length} поврежденных соединений`);
+        }
+        
+        return true;
     }
 
     /**
-     * Получение статистики
-     * @returns {object} Статистика
+     * Миграция данных
      */
-    getStats() {
-        return {
-            rooms: this.data.rooms.length,
-            points: this.data.points.length,
-            routes: this.data.routes.length,
-            routePoints: this.data.routePoints.length,
-            graphNodes: this.data.graphNodes.length,
-            graphEdges: this.data.graphEdges.length,
-            total: this.data.rooms.length + this.data.points.length + 
-                   this.data.routes.length + this.data.graphNodes.length + 
-                   this.data.graphEdges.length
+    migrateData(savedData) {
+        console.log('🔄 Миграция данных из версии:', savedData.metadata?.version || 'старая');
+        
+        // Мигрируем комнаты
+        this.data.rooms = (savedData.rooms || []).map(room => ({
+            id: room.id || Utils.generateId(),
+            name: room.name || '',
+            department: room.department || '',
+            employees: room.employees || '',
+            phone: room.phone || '',
+            color: room.color || '#3498db',
+            vertices: room.vertices || [],
+            area: room.area || 0,
+            createdAt: room.createdAt || new Date().toISOString(),
+            updatedAt: room.updatedAt || new Date().toISOString()
+        }));
+
+        // Мигрируем точки
+        if (savedData.graphNodes) {
+            this.data.points = savedData.graphNodes.map(node => ({
+                id: node.id || Utils.generateId(),
+                name: node.name || '',
+                type: node.type === 'door' ? 'entrance' : (node.type || 'point_of_interest'),
+                y: node.y || 0,
+                x: node.x || 0,
+                color: node.color || '#3498db',
+                isRouting: node.metadata?.isRoutingPoint !== false,
+                roomId: node.metadata?.roomId || null,
+                metadata: node.metadata || {},
+                createdAt: node.createdAt || new Date().toISOString(),
+                updatedAt: node.updatedAt || new Date().toISOString()
+            }));
+        } else {
+            this.data.points = (savedData.points || []).map(point => ({
+                id: point.id || Utils.generateId(),
+                name: point.name || '',
+                type: point.type || 'point_of_interest',
+                y: point.y || 0,
+                x: point.x || 0,
+                color: point.color || '#3498db',
+                isRouting: point.isRouting !== false,
+                roomId: point.roomId || null,
+                metadata: point.metadata || {},
+                createdAt: point.createdAt || new Date().toISOString(),
+                updatedAt: point.updatedAt || new Date().toISOString()
+            }));
+        }
+
+        // Мигрируем соединения
+        if (savedData.graphEdges) {
+            this.data.connections = savedData.graphEdges.map(edge => ({
+                id: edge.id || Utils.generateId(),
+                from: edge.source || edge.from || '',
+                to: edge.target || edge.to || '',
+                name: edge.name || '',
+                color: edge.color || '#2ecc71',
+                weight: edge.weight || 3,
+                length: edge.length || 0,
+                isBidirectional: edge.isBidirectional !== false,
+                metadata: edge.metadata || {},
+                createdAt: edge.createdAt || new Date().toISOString(),
+                updatedAt: edge.updatedAt || new Date().toISOString()
+            }));
+        } else {
+            this.data.connections = (savedData.connections || []).map(conn => ({
+                id: conn.id || Utils.generateId(),
+                from: conn.from || '',
+                to: conn.to || '',
+                name: conn.name || '',
+                color: conn.color || '#2ecc71',
+                weight: conn.weight || 3,
+                length: conn.length || 0,
+                isBidirectional: conn.isBidirectional !== false,
+                metadata: conn.metadata || {},
+                createdAt: conn.createdAt || new Date().toISOString(),
+                updatedAt: conn.updatedAt || new Date().toISOString()
+            }));
+        }
+
+        // Мигрируем путь к изображению
+        this.data.imagePath = savedData.imagePath || 'img/plan.png';
+        
+        // Мигрируем метаданные
+        this.data.metadata = {
+            version: '4.0',
+            lastModified: new Date().toISOString(),
+            created: savedData.metadata?.created || new Date().toISOString()
         };
+
+        // Обновляем кэш
+        this.updateCache();
+        
+        console.log('✅ Миграция завершена');
+    }
+
+    // ========== МЕТОДЫ ДЛЯ ИЗОБРАЖЕНИЯ ==========
+
+    getImagePath() {
+        return this.data.imagePath || 'img/plan.png';
+    }
+
+    saveImagePath(path) {
+        if (!path) return false;
+        this.data.imagePath = path;
+        this.saveData();
+        console.log('🖼️ Путь к изображению сохранен:', path);
+        return true;
     }
 
     // ========== МЕТОДЫ ДЛЯ КАБИНЕТОВ ==========
-    // (без изменений, оставляем существующие методы)
 
     getAllPolygons() {
-        return Utils.deepCopy(this.data.rooms);
+        return this.data.rooms.map(room => ({ ...room }));
     }
 
     getPolygon(id) {
-        return this.data.rooms.find(room => room.id === id) || null;
+        const room = this.cache.rooms.get(id);
+        return room ? { ...room } : null;
+    }
+
+    getPolygonByName(name) {
+        const room = this.data.rooms.find(r => r.name === name);
+        return room ? { ...room } : null;
     }
 
     addPolygon(polygonData) {
         try {
+            console.log('➕ Добавление кабинета:', polygonData.name);
+
             if (!polygonData.name || !polygonData.vertices || polygonData.vertices.length < 3) {
                 throw new Error('Неверные данные кабинета');
             }
@@ -175,26 +262,30 @@ class DataManager {
                 employees: polygonData.employees?.trim() || '',
                 phone: polygonData.phone?.trim() || '',
                 color: polygonData.color || '#3498db',
-                vertices: Utils.deepCopy(polygonData.vertices),
+                vertices: polygonData.vertices.map(v => [v[0], v[1]]),
                 area: polygonData.area || Utils.calculatePolygonArea(polygonData.vertices),
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             };
 
             this.data.rooms.push(polygon);
+            this.cache.rooms.set(polygon.id, polygon);
             this.saveData();
-            
-            console.log('Кабинет добавлен:', polygon.id, polygon.name);
-            return Utils.deepCopy(polygon);
-            
+
+            console.log('✅ Кабинет добавлен:', polygon.id, polygon.name);
+            return { ...polygon };
+
         } catch (error) {
-            console.error('Ошибка добавления кабинета:', error);
+            console.error('❌ Ошибка добавления кабинета:', error);
             throw error;
         }
     }
 
     updatePolygon(id, polygonData) {
         try {
+            console.log('🔄 Обновление кабинета:', id);
+            console.log('📝 Новые данные:', polygonData);
+
             const index = this.data.rooms.findIndex(room => room.id === id);
             if (index === -1) {
                 throw new Error('Кабинет не найден');
@@ -202,131 +293,172 @@ class DataManager {
 
             const original = this.data.rooms[index];
             
-            this.data.rooms[index] = {
+            // Создаем обновленный объект
+            const updatedRoom = {
                 ...original,
-                name: polygonData.name?.trim() || original.name,
-                department: polygonData.department?.trim() || original.department,
-                employees: polygonData.employees?.trim() || original.employees,
-                phone: polygonData.phone?.trim() || original.phone,
+                name: polygonData.name?.trim() !== undefined ? polygonData.name.trim() : original.name,
+                department: polygonData.department?.trim() !== undefined ? polygonData.department.trim() : original.department,
+                employees: polygonData.employees?.trim() !== undefined ? polygonData.employees.trim() : original.employees,
+                phone: polygonData.phone?.trim() !== undefined ? polygonData.phone.trim() : original.phone,
                 color: polygonData.color || original.color,
-                vertices: polygonData.vertices ? Utils.deepCopy(polygonData.vertices) : original.vertices,
+                vertices: polygonData.vertices ? polygonData.vertices.map(v => [v[0], v[1]]) : original.vertices,
                 area: polygonData.area || 
                      (polygonData.vertices ? Utils.calculatePolygonArea(polygonData.vertices) : original.area),
                 updatedAt: new Date().toISOString()
             };
 
-            this.saveData();
-            console.log('Кабинет обновлен:', id);
-            return Utils.deepCopy(this.data.rooms[index]);
+            // Обновляем в массиве
+            this.data.rooms[index] = updatedRoom;
             
+            // Обновляем в кэше
+            this.cache.rooms.set(id, updatedRoom);
+            
+            // Сохраняем
+            this.saveData();
+
+            console.log('✅ Кабинет обновлен:', {
+                id: updatedRoom.id,
+                name: updatedRoom.name,
+                department: updatedRoom.department,
+                employees: updatedRoom.employees,
+                phone: updatedRoom.phone,
+                color: updatedRoom.color
+            });
+
+            return { ...updatedRoom };
+
         } catch (error) {
-            console.error('Ошибка обновления кабинета:', error);
+            console.error('❌ Ошибка обновления кабинета:', error);
             throw error;
         }
     }
 
     deletePolygon(id) {
         try {
+            console.log('🗑️ Удаление кабинета:', id);
+
+            // Отвязываем точки
+            this.data.points = this.data.points.map(point => {
+                if (point.roomId === id) {
+                    const updated = { ...point, roomId: null, updatedAt: new Date().toISOString() };
+                    this.cache.points.set(point.id, updated);
+                    return updated;
+                }
+                return point;
+            });
+
+            // Удаляем кабинет
             const initialLength = this.data.rooms.length;
             this.data.rooms = this.data.rooms.filter(room => room.id !== id);
-            
+            this.cache.rooms.delete(id);
+
             if (this.data.rooms.length < initialLength) {
                 this.saveData();
-                console.log('Кабинет удален:', id);
+                console.log('✅ Кабинет удален:', id);
                 return true;
             }
-            
+
             return false;
+
         } catch (error) {
-            console.error('Ошибка удаления кабинета:', error);
+            console.error('❌ Ошибка удаления кабинета:', error);
             return false;
         }
     }
 
     clearRooms() {
         try {
+            console.log('🗑️ Очистка всех кабинетов');
+
+            // Отвязываем все точки
+            this.data.points = this.data.points.map(point => {
+                const updated = { ...point, roomId: null, updatedAt: new Date().toISOString() };
+                this.cache.points.set(point.id, updated);
+                return updated;
+            });
+
+            // Очищаем кабинеты
             this.data.rooms = [];
+            this.cache.rooms.clear();
+            
             this.saveData();
-            console.log('Все кабинеты удалены');
+            console.log('✅ Все кабинеты удалены');
             return true;
+
         } catch (error) {
-            console.error('Ошибка очистки кабинетов:', error);
+            console.error('❌ Ошибка очистки кабинетов:', error);
             return false;
         }
     }
 
     // ========== МЕТОДЫ ДЛЯ ТОЧЕК ==========
-    // (оставляем для обратной совместимости)
 
     getAllPoints() {
-        return Utils.deepCopy(this.data.points);
+        return this.data.points.map(point => ({ ...point }));
     }
 
     getPoint(id) {
-        return this.data.points.find(point => point.id === id) || null;
+        const point = this.cache.points.get(id);
+        return point ? { ...point } : null;
     }
 
-    searchPoints(query) {
-        if (!query) return this.getAllPoints();
-        
-        const lowerQuery = query.toLowerCase();
-        return this.data.points.filter(point =>
-            point.name.toLowerCase().includes(lowerQuery) ||
-            point.type?.toLowerCase().includes(lowerQuery) ||
-            point.description?.toLowerCase().includes(lowerQuery)
-        );
+    getPointsByRoom(roomId) {
+        return this.data.points
+            .filter(point => point.roomId === roomId)
+            .map(point => ({ ...point }));
+    }
+
+    getRoutingPoints() {
+        return this.data.points
+            .filter(point => point.isRouting !== false)
+            .map(point => ({ ...point }));
+    }
+
+    getPointsByType(type) {
+        return this.data.points
+            .filter(point => point.type === type)
+            .map(point => ({ ...point }));
     }
 
     addPoint(pointData) {
         try {
+            console.log('➕ Добавление точки:', pointData.name);
+
             if (!pointData.name || pointData.y === undefined || pointData.x === undefined) {
                 throw new Error('Неверные данные точки');
             }
 
             const point = {
-                id: Utils.generateId(),
+                id: pointData.id || Utils.generateId(),
                 name: pointData.name.trim(),
-                type: pointData.type?.trim() || '',
-                description: pointData.description?.trim() || '',
-                color: pointData.color || '#e74c3c',
+                type: pointData.type || 'point_of_interest',
                 y: pointData.y,
                 x: pointData.x,
+                color: pointData.color || '#3498db',
+                isRouting: pointData.isRouting !== false,
+                roomId: pointData.roomId || null,
+                metadata: pointData.metadata || {},
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             };
 
             this.data.points.push(point);
-            
-            // Также добавляем как узел графа
-            this.addNode({
-                id: point.id,
-                name: point.name,
-                type: point.type === 'door' ? 'door' : 'point_of_interest',
-                category: 'point',
-                color: point.color,
-                y: point.y,
-                x: point.x,
-                isDraggable: true,
-                metadata: {
-                    originalPointId: point.id,
-                    isRoutingPoint: true,
-                    description: point.description || ''
-                }
-            });
-            
+            this.cache.points.set(point.id, point);
             this.saveData();
-            
-            console.log('Точка добавлена:', point.id, point.name);
-            return Utils.deepCopy(point);
-            
+
+            console.log('✅ Точка добавлена:', point.id, point.name);
+            return { ...point };
+
         } catch (error) {
-            console.error('Ошибка добавления точки:', error);
+            console.error('❌ Ошибка добавления точки:', error);
             throw error;
         }
     }
 
     updatePoint(id, pointData) {
         try {
+            console.log('🔄 Обновление точки:', id);
+
             const index = this.data.points.findIndex(point => point.id === id);
             if (index === -1) {
                 throw new Error('Точка не найдена');
@@ -334,629 +466,369 @@ class DataManager {
 
             const original = this.data.points[index];
             
-            this.data.points[index] = {
+            const updatedPoint = {
                 ...original,
-                name: pointData.name?.trim() || original.name,
-                type: pointData.type?.trim() || original.type,
-                description: pointData.description?.trim() || original.description,
-                color: pointData.color || original.color,
+                name: pointData.name?.trim() !== undefined ? pointData.name.trim() : original.name,
+                type: pointData.type || original.type,
                 y: pointData.y !== undefined ? pointData.y : original.y,
                 x: pointData.x !== undefined ? pointData.x : original.x,
+                color: pointData.color || original.color,
+                isRouting: pointData.isRouting !== undefined ? pointData.isRouting : original.isRouting,
+                roomId: pointData.roomId !== undefined ? pointData.roomId : original.roomId,
+                metadata: {
+                    ...original.metadata,
+                    ...pointData.metadata
+                },
                 updatedAt: new Date().toISOString()
             };
 
-            // Также обновляем узел графа
-            const nodeIndex = this.data.graphNodes.findIndex(node => node.metadata?.originalPointId === id);
-            if (nodeIndex !== -1) {
-                this.data.graphNodes[nodeIndex] = {
-                    ...this.data.graphNodes[nodeIndex],
-                    name: pointData.name?.trim() || original.name,
-                    color: pointData.color || original.color,
-                    y: pointData.y !== undefined ? pointData.y : original.y,
-                    x: pointData.x !== undefined ? pointData.x : original.x,
-                    metadata: {
-                        ...this.data.graphNodes[nodeIndex].metadata,
-                        description: pointData.description?.trim() || original.description || ''
-                    }
-                };
-            }
-
-            this.saveData();
-            console.log('Точка обновлена:', id);
-            return Utils.deepCopy(this.data.points[index]);
+            this.data.points[index] = updatedPoint;
+            this.cache.points.set(id, updatedPoint);
             
+            // Обновляем связанные соединения
+            this.updateConnectionsForPoint(id, updatedPoint);
+            
+            this.saveData();
+
+            console.log('✅ Точка обновлена:', id);
+            return { ...updatedPoint };
+
         } catch (error) {
-            console.error('Ошибка обновления точки:', error);
+            console.error('❌ Ошибка обновления точки:', error);
             throw error;
         }
     }
 
+    updateConnectionsForPoint(pointId, updatedPoint) {
+        // Обновляем длину соединений, связанных с этой точкой
+        this.data.connections = this.data.connections.map(conn => {
+            if (conn.from === pointId || conn.to === pointId) {
+                const otherId = conn.from === pointId ? conn.to : conn.from;
+                const otherPoint = this.cache.points.get(otherId);
+                
+                if (otherPoint) {
+                    const length = Math.sqrt(
+                        Math.pow(otherPoint.y - updatedPoint.y, 2) + 
+                        Math.pow(otherPoint.x - updatedPoint.x, 2)
+                    );
+                    
+                    const updated = {
+                        ...conn,
+                        length: length,
+                        updatedAt: new Date().toISOString()
+                    };
+                    
+                    this.cache.connections.set(conn.id, updated);
+                    return updated;
+                }
+            }
+            return conn;
+        });
+    }
+
     deletePoint(id) {
         try {
+            console.log('🗑️ Удаление точки:', id);
+
+            // Удаляем связанные соединения
+            this.data.connections = this.data.connections.filter(conn => {
+                if (conn.from === id || conn.to === id) {
+                    this.cache.connections.delete(conn.id);
+                    return false;
+                }
+                return true;
+            });
+
+            // Удаляем точку
             const initialLength = this.data.points.length;
             this.data.points = this.data.points.filter(point => point.id !== id);
-            
-            // Также удаляем связанный узел графа
-            this.data.graphNodes = this.data.graphNodes.filter(node => 
-                !(node.metadata?.originalPointId === id)
-            );
-            
+            this.cache.points.delete(id);
+
             if (this.data.points.length < initialLength) {
                 this.saveData();
-                console.log('Точка удалена:', id);
+                console.log('✅ Точка удалена:', id);
                 return true;
             }
-            
+
             return false;
+
         } catch (error) {
-            console.error('Ошибка удаления точки:', error);
+            console.error('❌ Ошибка удаления точки:', error);
             return false;
         }
     }
 
     clearPoints() {
         try {
+            console.log('🗑️ Очистка всех точек');
             this.data.points = [];
-            // Не очищаем graphNodes, так как они могут содержать другие типы узлов
+            this.data.connections = [];
+            this.cache.points.clear();
+            this.cache.connections.clear();
             this.saveData();
-            console.log('Все точки удалены');
+            console.log('✅ Все точки и соединения удалены');
             return true;
         } catch (error) {
-            console.error('Ошибка очистки точек:', error);
+            console.error('❌ Ошибка очистки точек:', error);
             return false;
         }
     }
 
-    // ========== МЕТОДЫ ДЛЯ ГРАФА (НОВЫЕ) ==========
+    findNearestPoint(y, x, maxDistance = 50) {
+        let nearest = null;
+        let minDistance = Infinity;
 
-    /**
-     * Получение всех узлов графа
-     * @returns {Array} Массив узлов
-     */
-    getAllNodes() {
-        return Utils.deepCopy(this.data.graphNodes);
-    }
-
-    /**
-     * Получение узла по ID
-     * @param {string} id - ID узла
-     * @returns {object|null} Узел
-     */
-    getNode(id) {
-        return this.data.graphNodes.find(node => node.id === id) || null;
-    }
-
-    /**
-     * Добавление узла в граф
-     * @param {object} nodeData - Данные узла
-     * @returns {object} Добавленный узел
-     */
-    addNode(nodeData) {
-        try {
-            if (!nodeData.y === undefined || !nodeData.x === undefined) {
-                throw new Error('Неверные координаты узла');
-            }
-
-            const node = {
-                id: nodeData.id || Utils.generateId(),
-                name: nodeData.name?.trim() || `Узел ${this.data.graphNodes.length + 1}`,
-                type: nodeData.type || 'point_of_interest',
-                category: nodeData.category || 'point',
-                color: nodeData.color || '#3498db',
-                y: nodeData.y,
-                x: nodeData.x,
-                isDraggable: nodeData.isDraggable !== false,
-                metadata: {
-                    ...nodeData.metadata,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString()
-                }
-            };
-
-            this.data.graphNodes.push(node);
-            this.saveData();
-            
-            console.log('Узел графа добавлен:', node.id, node.name);
-            return Utils.deepCopy(node);
-            
-        } catch (error) {
-            console.error('Ошибка добавления узла графа:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Обновление узла графа
-     * @param {string} id - ID узла
-     * @param {object} nodeData - Новые данные узла
-     * @returns {object} Обновленный узел
-     */
-    updateNode(id, nodeData) {
-        try {
-            const index = this.data.graphNodes.findIndex(node => node.id === id);
-            if (index === -1) {
-                throw new Error('Узел графа не найден');
-            }
-
-            const original = this.data.graphNodes[index];
-            
-            this.data.graphNodes[index] = {
-                ...original,
-                name: nodeData.name?.trim() || original.name,
-                type: nodeData.type || original.type,
-                category: nodeData.category || original.category,
-                color: nodeData.color || original.color,
-                y: nodeData.y !== undefined ? nodeData.y : original.y,
-                x: nodeData.x !== undefined ? nodeData.x : original.x,
-                isDraggable: nodeData.isDraggable !== undefined ? nodeData.isDraggable : original.isDraggable,
-                metadata: {
-                    ...original.metadata,
-                    ...nodeData.metadata,
-                    updatedAt: new Date().toISOString()
-                }
-            };
-
-            this.saveData();
-            console.log('Узел графа обновлен:', id);
-            return Utils.deepCopy(this.data.graphNodes[index]);
-            
-        } catch (error) {
-            console.error('Ошибка обновления узла графа:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Удаление узла графа
-     * @param {string} id - ID узла
-     * @returns {boolean} Успешно ли удалено
-     */
-    deleteNode(id) {
-        try {
-            // Удаляем узел
-            const initialLength = this.data.graphNodes.length;
-            this.data.graphNodes = this.data.graphNodes.filter(node => node.id !== id);
-            
-            // Удаляем все рёбра, связанные с этим узлом
-            this.data.graphEdges = this.data.graphEdges.filter(edge => 
-                edge.source !== id && edge.target !== id
+        this.data.points.forEach(point => {
+            const distance = Math.sqrt(
+                Math.pow(point.y - y, 2) + Math.pow(point.x - x, 2)
             );
             
-            if (this.data.graphNodes.length < initialLength) {
-                this.saveData();
-                console.log('Узел графа удален:', id);
-                return true;
+            if (distance < minDistance && distance < maxDistance) {
+                minDistance = distance;
+                nearest = point;
             }
-            
-            return false;
-        } catch (error) {
-            console.error('Ошибка удаления узла графа:', error);
-            return false;
-        }
+        });
+
+        return nearest ? { ...nearest } : null;
     }
 
-    /**
-     * Получение всех рёбер графа
-     * @returns {Array} Массив рёбер
-     */
-    getAllEdges() {
-        return Utils.deepCopy(this.data.graphEdges);
-    }
-
-    /**
-     * Получение ребра по ID
-     * @param {string} id - ID ребра
-     * @returns {object|null} Ребро
-     */
-    getEdge(id) {
-        return this.data.graphEdges.find(edge => edge.id === id) || null;
-    }
-
-    /**
-     * Получение рёбер, связанных с узлом
-     * @param {string} nodeId - ID узла
-     * @returns {Array} Массив рёбер
-     */
-    getEdgesByNode(nodeId) {
-        return this.data.graphEdges.filter(edge => 
-            edge.source === nodeId || edge.target === nodeId
-        );
-    }
-
-    /**
-     * Добавление ребра в граф
-     * @param {string} sourceId - ID исходного узла
-     * @param {string} targetId - ID целевого узла
-     * @param {object} edgeData - Данные ребра
-     * @returns {object} Добавленное ребро
-     */
-    addEdge(sourceId, targetId, edgeData = {}) {
+    attachPointToRoom(pointId, roomId) {
         try {
-            // Проверяем существование узлов
-            const sourceNode = this.getNode(sourceId);
-            const targetNode = this.getNode(targetId);
+            const point = this.getPoint(pointId);
+            const room = this.getPolygon(roomId);
             
-            if (!sourceNode || !targetNode) {
-                throw new Error('Узлы не найдены');
-            }
-
-            // Проверяем, нет ли уже такого ребра
-            const existingEdge = this.data.graphEdges.find(edge => 
-                (edge.source === sourceId && edge.target === targetId) ||
-                (edge.source === targetId && edge.target === sourceId)
-            );
+            if (!point) throw new Error('Точка не найдена');
+            if (roomId && !room) throw new Error('Кабинет не найден');
             
-            if (existingEdge) {
-                console.warn('Ребро уже существует:', existingEdge.id);
-                return Utils.deepCopy(existingEdge);
-            }
+            return this.updatePoint(pointId, { roomId: roomId || null });
 
-            // Рассчитываем длину
-            const length = Math.sqrt(
-                Math.pow(targetNode.y - sourceNode.y, 2) + 
-                Math.pow(targetNode.x - sourceNode.x, 2)
-            );
-
-            const edge = {
-                id: edgeData.id || Utils.generateId(),
-                source: sourceId,
-                target: targetId,
-                name: edgeData.name || `${sourceNode.name} ↔ ${targetNode.name}`,
-                color: edgeData.color || '#2ecc71',
-                weight: edgeData.weight || 3,
-                length: edgeData.length || length,
-                isBidirectional: edgeData.isBidirectional !== false,
-                metadata: {
-                    ...edgeData.metadata,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString()
-                }
-            };
-
-            this.data.graphEdges.push(edge);
-            this.saveData();
-            
-            console.log('Ребро графа добавлено:', edge.id, edge.name);
-            return Utils.deepCopy(edge);
-            
         } catch (error) {
-            console.error('Ошибка добавления ребра графа:', error);
+            console.error('❌ Ошибка привязки точки к кабинету:', error);
             throw error;
         }
     }
 
-    /**
-     * Обновление ребра графа
-     * @param {string} id - ID ребра
-     * @param {object} edgeData - Новые данные ребра
-     * @returns {object} Обновленное ребро
-     */
-    updateEdge(id, edgeData) {
-        try {
-            const index = this.data.graphEdges.findIndex(edge => edge.id === id);
-            if (index === -1) {
-                throw new Error('Ребро графа не найден');
-            }
-
-            const original = this.data.graphEdges[index];
-            
-            this.data.graphEdges[index] = {
-                ...original,
-                name: edgeData.name?.trim() || original.name,
-                color: edgeData.color || original.color,
-                weight: edgeData.weight || original.weight,
-                isBidirectional: edgeData.isBidirectional !== undefined ? edgeData.isBidirectional : original.isBidirectional,
-                metadata: {
-                    ...original.metadata,
-                    ...edgeData.metadata,
-                    updatedAt: new Date().toISOString()
-                }
-            };
-
-            this.saveData();
-            console.log('Ребро графа обновлено:', id);
-            return Utils.deepCopy(this.data.graphEdges[index]);
-            
-        } catch (error) {
-            console.error('Ошибка обновления ребра графа:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Удаление ребра графа
-     * @param {string} id - ID ребра
-     * @returns {boolean} Успешно ли удалено
-     */
-    deleteEdge(id) {
-        try {
-            const initialLength = this.data.graphEdges.length;
-            this.data.graphEdges = this.data.graphEdges.filter(edge => edge.id !== id);
-            
-            if (this.data.graphEdges.length < initialLength) {
-                this.saveData();
-                console.log('Ребро графа удалено:', id);
-                return true;
-            }
-            
-            return false;
-        } catch (error) {
-            console.error('Ошибка удаления ребра графа:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Очистка всех узлов графа
-     * @returns {boolean} Успешно ли очищено
-     */
-    clearGraphNodes() {
-        try {
-            this.data.graphNodes = [];
-            this.saveData();
-            console.log('Все узлы графа удалены');
-            return true;
-        } catch (error) {
-            console.error('Ошибка очистки узлов графа:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Очистка всех рёбер графа
-     * @returns {boolean} Успешно ли очищено
-     */
-    clearGraphEdges() {
-        try {
-            this.data.graphEdges = [];
-            this.saveData();
-            console.log('Все рёбра графа удалены');
-            return true;
-        } catch (error) {
-            console.error('Ошибка очистки рёбер графа:', error);
-            return false;
-        }
-    }
-
-    // ========== МЕТОДЫ ДЛЯ МАРШРУТОВ ==========
-    // (оставляем для обратной совместимости)
-
-    getAllRoutes() {
-        return Utils.deepCopy(this.data.routes);
-    }
-
-    getRoute(id) {
-        return this.data.routes.find(route => route.id === id) || null;
-    }
-
-    getRoutesByPoint(pointId) {
+    getRoomForPoint(pointId) {
         const point = this.getPoint(pointId);
-        if (!point) return [];
-        
-        return this.data.routes.filter(route => 
-            route.startPointId === pointId || 
-            route.endPointId === pointId ||
-            route.points?.some(([y, x]) => y === point.y && x === point.x)
-        );
+        if (!point || !point.roomId) return null;
+        return this.getPolygon(point.roomId);
     }
 
-    addRoute(routeData) {
+    // ========== МЕТОДЫ ДЛЯ СОЕДИНЕНИЙ ==========
+
+    getAllConnections() {
+        return this.data.connections.map(conn => ({ ...conn }));
+    }
+
+    getConnection(id) {
+        const conn = this.cache.connections.get(id);
+        return conn ? { ...conn } : null;
+    }
+
+    getConnectionsByPoint(pointId) {
+        return this.data.connections
+            .filter(conn => conn.from === pointId || conn.to === pointId)
+            .map(conn => ({ ...conn }));
+    }
+
+    addConnection(fromId, toId, connectionData = {}) {
         try {
-            if (!routeData.name || !routeData.points || routeData.points.length < 2) {
-                throw new Error('Неверные данные маршрута');
+            console.log('➕ Добавление соединения:', fromId, '↔', toId);
+
+            const fromPoint = this.getPoint(fromId);
+            const toPoint = this.getPoint(toId);
+            
+            if (!fromPoint) throw new Error('Точка отправления не найдена');
+            if (!toPoint) throw new Error('Точка назначения не найдена');
+
+            // Проверяем существующее соединение
+            const existing = this.data.connections.find(conn => 
+                (conn.from === fromId && conn.to === toId) ||
+                (conn.from === toId && conn.to === fromId)
+            );
+            
+            if (existing) {
+                console.log('⚠️ Соединение уже существует:', existing.id);
+                return { ...existing };
             }
 
-            const route = {
-                id: Utils.generateId(),
-                name: routeData.name.trim(),
-                points: Utils.deepCopy(routeData.points),
-                color: routeData.color || '#2ecc71',
-                weight: routeData.weight || 3,
-                startPointId: routeData.startPointId || null,
-                endPointId: routeData.endPointId || null,
-                startName: routeData.startName || '',
-                endName: routeData.endName || '',
-                length: routeData.length || this.calculateRouteLength(routeData.points),
+            const length = Math.sqrt(
+                Math.pow(toPoint.y - fromPoint.y, 2) + 
+                Math.pow(toPoint.x - fromPoint.x, 2)
+            );
+
+            const connection = {
+                id: connectionData.id || Utils.generateId(),
+                from: fromId,
+                to: toId,
+                name: connectionData.name || `${fromPoint.name} ↔ ${toPoint.name}`,
+                color: connectionData.color || '#2ecc71',
+                weight: connectionData.weight || 3,
+                length: connectionData.length || length,
+                isBidirectional: connectionData.isBidirectional !== false,
+                metadata: connectionData.metadata || {},
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             };
 
-            this.data.routes.push(route);
+            this.data.connections.push(connection);
+            this.cache.connections.set(connection.id, connection);
             this.saveData();
-            
-            console.log('Маршрут добавлен:', route.id, route.name);
-            return Utils.deepCopy(route);
-            
+
+            console.log('✅ Соединение добавлено:', connection.id);
+            return { ...connection };
+
         } catch (error) {
-            console.error('Ошибка добавления маршрута:', error);
+            console.error('❌ Ошибка добавления соединения:', error);
             throw error;
         }
     }
 
-    calculateRouteLength(points) {
-        let totalLength = 0;
-        for (let i = 0; i < points.length - 1; i++) {
-            const [y1, x1] = points[i];
-            const [y2, x2] = points[i + 1];
-            totalLength += Math.sqrt(Math.pow(y2 - y1, 2) + Math.pow(x2 - x1, 2));
-        }
-        return totalLength;
-    }
-
-    updateRoute(id, routeData) {
+    updateConnection(id, connectionData) {
         try {
-            const index = this.data.routes.findIndex(route => route.id === id);
+            console.log('🔄 Обновление соединения:', id);
+
+            const index = this.data.connections.findIndex(conn => conn.id === id);
             if (index === -1) {
-                throw new Error('Маршрут не найден');
+                throw new Error('Соединение не найдено');
             }
 
-            const original = this.data.routes[index];
+            const original = this.data.connections[index];
             
-            this.data.routes[index] = {
+            // Пересчитываем длину если меняются точки
+            let newLength = original.length;
+            if (connectionData.from || connectionData.to) {
+                const fromId = connectionData.from || original.from;
+                const toId = connectionData.to || original.to;
+                const fromPoint = this.getPoint(fromId);
+                const toPoint = this.getPoint(toId);
+                
+                if (fromPoint && toPoint) {
+                    newLength = Math.sqrt(
+                        Math.pow(toPoint.y - fromPoint.y, 2) + 
+                        Math.pow(toPoint.x - fromPoint.x, 2)
+                    );
+                }
+            }
+
+            const updated = {
                 ...original,
-                name: routeData.name?.trim() || original.name,
-                points: routeData.points ? Utils.deepCopy(routeData.points) : original.points,
-                color: routeData.color || original.color,
-                weight: routeData.weight || original.weight,
-                startPointId: routeData.startPointId !== undefined ? routeData.startPointId : original.startPointId,
-                endPointId: routeData.endPointId !== undefined ? routeData.endPointId : original.endPointId,
-                startName: routeData.startName?.trim() || original.startName,
-                endName: routeData.endName?.trim() || original.endName,
-                length: routeData.length || 
-                       (routeData.points ? this.calculateRouteLength(routeData.points) : original.length),
+                from: connectionData.from !== undefined ? connectionData.from : original.from,
+                to: connectionData.to !== undefined ? connectionData.to : original.to,
+                name: connectionData.name?.trim() || original.name,
+                color: connectionData.color || original.color,
+                weight: connectionData.weight || original.weight,
+                length: newLength,
+                isBidirectional: connectionData.isBidirectional !== undefined ? connectionData.isBidirectional : original.isBidirectional,
+                metadata: {
+                    ...original.metadata,
+                    ...connectionData.metadata
+                },
                 updatedAt: new Date().toISOString()
             };
 
+            this.data.connections[index] = updated;
+            this.cache.connections.set(id, updated);
             this.saveData();
-            console.log('Маршрут обновлен:', id);
-            return Utils.deepCopy(this.data.routes[index]);
-            
+
+            console.log('✅ Соединение обновлено:', id);
+            return { ...updated };
+
         } catch (error) {
-            console.error('Ошибка обновления маршрута:', error);
+            console.error('❌ Ошибка обновления соединения:', error);
             throw error;
         }
     }
 
-    deleteRoute(id) {
+    deleteConnection(id) {
         try {
-            const initialLength = this.data.routes.length;
-            this.data.routes = this.data.routes.filter(route => route.id !== id);
-            
-            if (this.data.routes.length < initialLength) {
+            console.log('🗑️ Удаление соединения:', id);
+
+            const initialLength = this.data.connections.length;
+            this.data.connections = this.data.connections.filter(conn => conn.id !== id);
+            this.cache.connections.delete(id);
+
+            if (this.data.connections.length < initialLength) {
                 this.saveData();
-                console.log('Маршрут удален:', id);
+                console.log('✅ Соединение удалено:', id);
                 return true;
             }
-            
+
             return false;
+
         } catch (error) {
-            console.error('Ошибка удаления маршрута:', error);
+            console.error('❌ Ошибка удаления соединения:', error);
             return false;
         }
     }
 
-    clearRoutes() {
+    clearConnections() {
         try {
-            this.data.routes = [];
+            console.log('🗑️ Очистка всех соединений');
+            this.data.connections = [];
+            this.cache.connections.clear();
             this.saveData();
-            console.log('Все маршруты удалены');
+            console.log('✅ Все соединения удалены');
             return true;
         } catch (error) {
-            console.error('Ошибка очистки маршрутов:', error);
-            return false;
-        }
-    }
-
-    // ========== МЕТОДЫ ДЛЯ ТОЧЕК ПРИВЯЗКИ ==========
-    // (оставляем для обратной совместимости)
-
-    getAllRoutePoints() {
-        return Utils.deepCopy(this.data.routePoints);
-    }
-
-    getRoutePoint(id) {
-        return this.data.routePoints.find(point => point.id === id) || null;
-    }
-
-    addRoutePoint(routePointData) {
-        try {
-            if (!routePointData.y || !routePointData.x) {
-                throw new Error('Неверные координаты точки привязки');
-            }
-
-            const routePoint = {
-                id: Utils.generateId(),
-                name: routePointData.name?.trim() || `Точка ${this.data.routePoints.length + 1}`,
-                y: routePointData.y,
-                x: routePointData.x,
-                color: routePointData.color || '#9b59b6',
-                connectedRoutes: routePointData.connectedRoutes || [],
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            };
-
-            this.data.routePoints.push(routePoint);
-            this.saveData();
-            
-            console.log('Точка привязки добавлена:', routePoint.id);
-            return Utils.deepCopy(routePoint);
-            
-        } catch (error) {
-            console.error('Ошибка добавления точки привязки:', error);
-            throw error;
-        }
-    }
-
-    updateRoutePoint(id, routePointData) {
-        try {
-            const index = this.data.routePoints.findIndex(point => point.id === id);
-            if (index === -1) {
-                throw new Error('Точка привязки не найдена');
-            }
-
-            const original = this.data.routePoints[index];
-            
-            this.data.routePoints[index] = {
-                ...original,
-                name: routePointData.name?.trim() || original.name,
-                y: routePointData.y !== undefined ? routePointData.y : original.y,
-                x: routePointData.x !== undefined ? routePointData.x : original.x,
-                color: routePointData.color || original.color,
-                connectedRoutes: routePointData.connectedRoutes || original.connectedRoutes,
-                updatedAt: new Date().toISOString()
-            };
-
-            this.saveData();
-            console.log('Точка привязки обновлена:', id);
-            return Utils.deepCopy(this.data.routePoints[index]);
-            
-        } catch (error) {
-            console.error('Ошибка обновления точки привязки:', error);
-            throw error;
-        }
-    }
-
-    deleteRoutePoint(id) {
-        try {
-            const initialLength = this.data.routePoints.length;
-            this.data.routePoints = this.data.routePoints.filter(point => point.id !== id);
-            
-            if (this.data.routePoints.length < initialLength) {
-                this.saveData();
-                console.log('Точка привязки удалена:', id);
-                return true;
-            }
-            
-            return false;
-        } catch (error) {
-            console.error('Ошибка удаления точки привязки:', error);
+            console.error('❌ Ошибка очистки соединений:', error);
             return false;
         }
     }
 
     // ========== ОБЩИЕ МЕТОДЫ ==========
 
+    getData() {
+        return {
+            rooms: this.data.rooms.map(r => ({ ...r })),
+            points: this.data.points.map(p => ({ ...p })),
+            connections: this.data.connections.map(c => ({ ...c })),
+            imagePath: this.data.imagePath,
+            metadata: { ...this.data.metadata }
+        };
+    }
+
+    getStats() {
+        const routingPoints = this.data.points.filter(p => p.isRouting !== false).length;
+        const pointsWithRooms = this.data.points.filter(p => p.roomId).length;
+        
+        return {
+            rooms: this.data.rooms.length,
+            points: this.data.points.length,
+            routingPoints,
+            pointsWithRooms,
+            connections: this.data.connections.length,
+            imagePath: this.data.imagePath,
+            total: this.data.rooms.length + this.data.points.length + this.data.connections.length
+        };
+    }
+
     clearAll() {
         try {
+            console.log('🗑️ Очистка всех данных');
+            
             this.data = {
                 rooms: [],
                 points: [],
-                routes: [],
-                routePoints: [],
-                graphNodes: [],
-                graphEdges: [],
+                connections: [],
+                imagePath: 'img/plan.png',
                 metadata: {
-                    ...this.data.metadata,
-                    lastModified: new Date().toISOString()
+                    version: '4.0',
+                    lastModified: new Date().toISOString(),
+                    created: this.data.metadata?.created || new Date().toISOString()
                 }
             };
+
+            this.cache.rooms.clear();
+            this.cache.points.clear();
+            this.cache.connections.clear();
             
             this.saveData();
-            console.log('Все данные очищены');
+            console.log('✅ Все данные очищены');
             return true;
-            
+
         } catch (error) {
-            console.error('Ошибка очистки всех данных:', error);
+            console.error('❌ Ошибка очистки всех данных:', error);
             return false;
         }
     }
@@ -966,22 +838,21 @@ class DataManager {
             const exportData = {
                 ...this.data,
                 exportDate: new Date().toISOString(),
-                exportVersion: '2.0'
+                exportVersion: '4.0'
             };
-            
             return JSON.stringify(exportData, null, 2);
-            
         } catch (error) {
-            console.error('Ошибка экспорта данных:', error);
+            console.error('❌ Ошибка экспорта данных:', error);
             throw error;
         }
     }
 
     importData(jsonData) {
         try {
+            console.log('📥 Импорт данных...');
+            
             const importedData = JSON.parse(jsonData);
             
-            // Проверяем структуру данных
             if (!importedData.rooms) {
                 throw new Error('Неверный формат данных');
             }
@@ -989,88 +860,97 @@ class DataManager {
             this.data = {
                 rooms: importedData.rooms || [],
                 points: importedData.points || [],
-                routes: importedData.routes || [],
-                routePoints: importedData.routePoints || [],
-                graphNodes: importedData.graphNodes || [],
-                graphEdges: importedData.graphEdges || [],
+                connections: importedData.connections || [],
+                imagePath: importedData.imagePath || 'img/plan.png',
                 metadata: {
-                    version: '2.0',
+                    version: '4.0',
                     lastModified: new Date().toISOString(),
                     created: importedData.metadata?.created || new Date().toISOString()
                 }
             };
 
+            this.updateCache();
+            this.validateDataIntegrity();
             this.saveData();
-            console.log('Данные успешно импортированы');
+
+            console.log('✅ Данные успешно импортированы');
             return true;
-            
+
         } catch (error) {
-            console.error('Ошибка импорта данных:', error);
+            console.error('❌ Ошибка импорта данных:', error);
             Utils.showNotification('Ошибка импорта данных: ' + error.message, 'error');
             return false;
         }
     }
 
-    getPointsForSelection() {
-        return this.data.points.map(point => ({
-            id: point.id,
-            name: point.name,
-            type: point.type,
-            y: point.y,
-            x: point.x
-        }));
+    findPointsInPolygon(vertices) {
+        return this.data.points
+            .filter(point => Utils.isPointInPolygon([point.y, point.x], vertices))
+            .map(point => ({ ...point }));
     }
 
-    getRoomsForSelection() {
-        return this.data.rooms.map(room => ({
-            id: room.id,
-            name: room.name,
-            department: room.department,
-            center: Utils.getPolygonCenter(room.vertices)
-        }));
-    }
-
-    /**
-     * Получение узлов для тестирования маршрутов
-     * @returns {Array} Массив узлов с маршрутизацией
-     */
-    getRoutingNodesForSelection() {
-        return this.data.graphNodes
-            .filter(node => node.metadata?.isRoutingPoint !== false)
-            .map(node => ({
-                id: node.id,
-                name: node.name,
-                type: node.type,
-                y: node.y,
-                x: node.x
-            }));
-    }
-
-    /**
-     * Поиск ближайшего узла к координатам
-     * @param {number} y - Координата Y
-     * @param {number} x - Координата X
-     * @param {number} maxDistance - Максимальное расстояние
-     * @returns {object|null} Найденный узел
-     */
-    findNearestNode(y, x, maxDistance = 50) {
-        let nearestNode = null;
+    findNearestRoomToPoint(y, x, maxDistance = 100) {
+        let nearest = null;
         let minDistance = Infinity;
 
-        this.data.graphNodes.forEach(node => {
-            const distance = Math.sqrt(
-                Math.pow(node.y - y, 2) + Math.pow(node.x - x, 2)
-            );
-            
-            if (distance < minDistance && distance < maxDistance) {
-                minDistance = distance;
-                nearestNode = node;
+        this.data.rooms.forEach(room => {
+            if (room.vertices && room.vertices.length >= 3) {
+                const center = Utils.getPolygonCenter(room.vertices);
+                const distance = Math.sqrt(
+                    Math.pow(center[0] - y, 2) + Math.pow(center[1] - x, 2)
+                );
+                
+                if (distance < minDistance && distance < maxDistance) {
+                    minDistance = distance;
+                    nearest = room;
+                }
             }
         });
 
-        return nearestNode ? Utils.deepCopy(nearestNode) : null;
+        return nearest ? { ...nearest } : null;
+    }
+
+    pointExists(pointId) {
+        return this.cache.points.has(pointId);
+    }
+
+    connectionExists(fromId, toId) {
+        return this.data.connections.some(conn => 
+            (conn.from === fromId && conn.to === toId) ||
+            (conn.from === toId && conn.to === fromId)
+        );
+    }
+
+    getGraph() {
+        const graph = {};
+        
+        this.data.points.forEach(point => {
+            if (point.isRouting !== false) {
+                graph[point.id] = [];
+            }
+        });
+        
+        this.data.connections.forEach(conn => {
+            if (graph[conn.from] && graph[conn.to]) {
+                graph[conn.from].push({
+                    node: conn.to,
+                    length: conn.length,
+                    connection: { ...conn }
+                });
+                
+                if (conn.isBidirectional) {
+                    graph[conn.to].push({
+                        node: conn.from,
+                        length: conn.length,
+                        connection: { ...conn }
+                    });
+                }
+            }
+        });
+        
+        return graph;
     }
 }
 
-// Экспортируем класс для глобального использования
+// Экспортируем класс
 window.DataManager = DataManager;
