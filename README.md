@@ -169,5 +169,19 @@ Mobile Export: The mobile version generates a clean, simplified interface with l
 
 Data Backup: Your data is stored in localStorage. Clearing your browser cache will delete your map data. Use the Import/Export tab to create backups.
 
+## 🤖 Acknowledgements
+
+This project was generated with the assistance of **artificial intelligence** (DeepSeek). 
+The code was written by AI based on user requirements. 
+
+**Note:** The repository owner did not write the core code and may not be able to 
+answer technical questions or modify the code without AI assistance.
+
+## 🤖 Об авторстве
+
+Данный проект создан при помощи **искусственного интеллекта** (DeepSeek) по запросу пользователя.
+Автор репозитория не является автором кода и может испытывать трудности с его самостоятельной 
+доработкой или объяснением без помощи ИИ.
+
 📧 Contact
 Project Link: https://github.com/Diego-83/Office-map
