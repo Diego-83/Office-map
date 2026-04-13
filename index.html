@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Редактор карты офиса с маршрутизацией</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -72,16 +72,19 @@
         .tabs {
             display: flex;
             background: #34495e;
+            flex-wrap: wrap;
         }
 
         .tab {
             flex: 1;
+            min-width: 120px;
             padding: 15px;
             text-align: center;
             color: white;
             cursor: pointer;
             border-bottom: 3px solid transparent;
             transition: all 0.3s;
+            font-size: 14px;
         }
 
         .tab:hover {
@@ -109,6 +112,7 @@
             display: block;
         }
 
+        /* Секции */
         .section {
             margin-bottom: 20px;
             border: 1px solid #eee;
@@ -122,6 +126,9 @@
             border-bottom: 1px solid #eee;
             font-weight: 600;
             color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
         .section-body {
@@ -154,6 +161,12 @@
             box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
         }
 
+        textarea.form-control {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        /* Выбор цвета */
         .color-picker {
             display: flex;
             align-items: center;
@@ -166,11 +179,7 @@
             padding: 0;
             border: none;
             cursor: pointer;
-        }
-
-        select.form-control {
-            padding: 10px;
-            background-color: white;
+            border-radius: 4px;
         }
 
         /* Кнопки */
@@ -185,6 +194,7 @@
             align-items: center;
             justify-content: center;
             gap: 8px;
+            font-size: 14px;
         }
 
         .btn-primary {
@@ -239,6 +249,10 @@
         .btn-group {
             display: flex;
             gap: 10px;
+        }
+
+        .btn-group .btn {
+            flex: 1;
         }
 
         /* Списки объектов */
@@ -305,6 +319,9 @@
             border-top: 1px solid #ddd;
             font-size: 0.9em;
             color: #666;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
         /* Модальные окна */
@@ -331,6 +348,7 @@
             border-radius: 8px;
             min-width: 400px;
             max-width: 500px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
         }
 
         .modal-header {
@@ -342,6 +360,7 @@
 
         .modal-body {
             margin-bottom: 20px;
+            line-height: 1.5;
         }
 
         .modal-footer {
@@ -375,18 +394,19 @@
         }
 
         /* Предупреждения */
-        .warning-text {
+        .warning-text, .danger-text {
             font-size: 0.85em;
-            color: #f39c12;
             margin-top: 5px;
             display: block;
+            line-height: 1.4;
+        }
+
+        .warning-text {
+            color: #f39c12;
         }
 
         .danger-text {
-            font-size: 0.85em;
             color: #e74c3c;
-            margin-top: 5px;
-            display: block;
         }
 
         /* Секции сброса */
@@ -413,49 +433,269 @@
             display: flex;
             align-items: center;
             margin-bottom: 0;
+            cursor: pointer;
         }
 
         /* Информационные блоки */
         .info-box {
             background: #e8f4fc;
-            padding: 10px;
+            padding: 15px;
             border-radius: 4px;
             margin-top: 10px;
             border-left: 4px solid #3498db;
+            line-height: 1.5;
         }
 
-        /* Стили для визуальных элементов */
-        .visual-point {
-            stroke-dasharray: 5, 5;
+        .info-box div {
+            margin-bottom: 8px;
         }
 
-        .routing-point {
-            stroke-width: 3;
+        .info-box div:last-child {
+            margin-bottom: 0;
         }
 
-        /* Адаптивность */
-        @media (max-width: 1200px) {
-            .control-panel {
-                min-width: 350px;
-            }
+        /* Заголовки подсекций */
+        h4 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Разделители */
+        hr {
+            border: none;
+            border-top: 1px solid #eee;
+            margin: 15px 0;
+        }
+
+        /* ============================= */
+        /* Мобильная маршрутизация */
+        /* ============================= */
+
+        .mobile-routing-panel {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 95%;
+            max-width: 500px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            z-index: 1000;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            display: none;
+        }
+
+        .mobile-routing-header {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .mobile-routing-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .mobile-routing-close {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .mobile-routing-close:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .mobile-routing-content {
+            padding: 20px;
+        }
+
+        .mobile-routing-status {
+            background: #f8f9fa;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            color: #333;
+            border-left: 4px solid #3498db;
+        }
+
+        .mobile-routing-selection {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .selected-point {
+            flex: 1;
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+
+        .selected-point-label {
+            font-size: 12px;
+            color: #6c757d;
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+
+        .selected-point-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: #212529;
+            min-height: 20px;
+        }
+
+        .mobile-routing-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .mobile-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .mobile-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .mobile-btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .mobile-btn-primary:not(:disabled):hover {
+            background: #2980b9;
+        }
+
+        .mobile-btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .mobile-btn-secondary:not(:disabled):hover {
+            background: #5a6268;
+        }
+
+        .mobile-btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .mobile-btn-success:not(:disabled):hover {
+            background: #218838;
+        }
+
+        .mobile-routing-instruction {
+            background: #e7f5ff;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #0066cc;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mobile-temp-marker {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 18px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+            border: 3px solid white;
+            z-index: 1000 !important;
+        }
+
+        .mobile-marker-start {
+            background: #28a745;
+        }
+
+        .mobile-marker-end {
+            background: #dc3545;
+        }
+
+        #mobile-routing-toggle {
+            display: none;
+            margin-top: 10px;
+        }
+
+        /* ============================= */
+        /* Подписи кабинетов */
+        /* ============================= */
+
+        .room-label {
+            pointer-events: none !important;
+        }
+
+        .room-label-content {
+            background-color: rgba(255, 255, 255, 0.9) !important;
+            padding: 4px 10px !important;
+            border-radius: 4px !important;
+            border: 2px solid #3498db !important;
+            color: #333 !important;
+            font-weight: bold !important;
+            font-size: 12px !important;
+            text-align: center !important;
+            white-space: normal !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            max-width: 200px !important;
+            min-width: 50px !important;
+            width: auto !important;
+            height: auto !important;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1) !important;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+            line-height: 1.4 !important;
+            display: inline-block !important;
         }
 
         @media (max-width: 768px) {
-            .container {
-                flex-direction: column;
-            }
-            
-            .control-panel {
-                min-width: 100%;
-                max-height: 50vh;
-            }
-            
-            .tabs {
-                flex-wrap: wrap;
-            }
-            
-            .tab {
-                min-width: 120px;
+            .room-label-content {
+                max-width: 150px !important;
+                font-size: 10px !important;
+                padding: 3px 8px !important;
             }
         }
     </style>
@@ -488,10 +728,15 @@
                 <div class="tab" data-tab="export">
                     <i class="fas fa-download"></i> Экспорт
                 </div>
+                <!-- НОВАЯ ВКЛАДКА: Импорт/Экспорт карт -->
+                <div class="tab" data-tab="import-export">
+                    <i class="fas fa-exchange-alt"></i> Импорт/Экспорт
+                </div>
             </div>
 
-            <!-- Вкладка Кабинеты (без изменений) -->
+            <!-- Вкладка Кабинеты -->
             <div class="tab-content active" id="rooms-tab">
+                <!-- ... существующее содержимое вкладки Кабинеты ... -->
                 <div class="section">
                     <div class="section-header">
                         <i class="fas fa-plus-circle"></i> Добавить кабинет
@@ -579,105 +824,91 @@
                 </div>
             </div>
 
-            <!-- Вкладка Маршруты (НОВАЯ СТРУКТУРА) -->
+            <!-- Вкладка Маршруты -->
             <div class="tab-content" id="routes-tab">
-                <!-- Секция 1: Создание точек -->
+                <!-- ... существующее содержимое вкладки Маршруты ... -->
                 <div class="section">
                     <div class="section-header">
                         <i class="fas fa-plus-circle"></i> Создание точек
                     </div>
                     <div class="section-body">
-                        <!-- Подсекция 1.1: Точки входа в кабинеты -->
-                        <div style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
-                            <h4 style="margin-bottom: 10px; color: #3498db;">
-                                <i class="fas fa-door-open"></i> Точки входа в кабинеты
-                            </h4>
-                            <div class="form-group">
-                                <label>Выберите кабинет:</label>
-                                <select id="room-select" class="form-control">
-                                    <option value="">Выберите кабинет</option>
-                                </select>
-                            </div>
-                            <button id="create-entrance-btn" class="btn btn-primary">
-                                <i class="fas fa-map-marker-alt"></i> Создать точку входа
-                            </button>
-                            <small class="warning-text">
-                                Кабинет будет подсвечен на карте. Кликните у входа.
-                            </small>
+                        <div class="form-group">
+                            <label>Название точки:</label>
+                            <input type="text" id="point-name-input" class="form-control" 
+                                   placeholder="Например: Лифт, Кулер, Ресепшен, Вход 101">
                         </div>
                         
-                        <!-- Подсекция 1.2: Точки интереса -->
-                        <div>
-                            <h4 style="margin-bottom: 10px; color: #2ecc71;">
-                                <i class="fas fa-star"></i> Точки интереса
-                            </h4>
-                            <div class="form-group">
-                                <label>Название точки:</label>
-                                <input type="text" id="point-name-input" class="form-control" 
-                                       placeholder="Например: Лифт, Кулер, Ресепшен">
-                            </div>
-                            <div class="form-group">
-                                <label>
-                                    <input type="checkbox" id="routing-checkbox" checked>
-                                    <span style="margin-left: 8px;">Точка маршрутизации</span>
-                                </label>
-                                <small class="warning-text">
-                                    Если отключено, точка будет только для отображения
-                                </small>
-                            </div>
-                            <button id="create-point-btn" class="btn btn-success" disabled>
-                                <i class="fas fa-plus"></i> Создать точку
+                        <div class="form-group">
+                            <label>Тип точки:</label>
+                            <select id="point-type-select" class="form-control">
+                                <option value="entrance">Вход в кабинет</option>
+                                <option value="point_of_interest">Точка интереса</option>
+                                <option value="connection">Точка соединения</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center;">
+                                <input type="checkbox" id="point-routing-checkbox" checked>
+                                <span style="margin-left: 8px;">Использовать в маршрутизации</span>
+                            </label>
+                        </div>
+                        
+                        <button id="create-point-btn" class="btn btn-primary btn-block">
+                            <i class="fas fa-map-marker-alt"></i> Создать точку на карте
+                        </button>
+                        
+                        <div class="instruction">
+                            <strong>Инструкция:</strong><br>
+                            1. Введите название точки<br>
+                            2. Выберите тип<br>
+                            3. Нажмите "Создать точку на карте"<br>
+                            4. Кликните на карте в нужном месте
+                        </div>
+
+                        <div class="form-group mobile-only" style="margin-top: 15px;">
+                            <button id="mobile-routing-toggle" class="btn btn-info btn-block">
+                                <i class="fas fa-mobile-alt"></i> Мобильная маршрутизация
                             </button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Секция 2: Управление точками -->
+                <div class="section">
+                    <div class="section-header">
+                        <i class="fas fa-link"></i> Создание соединений
+                    </div>
+                    <div class="section-body">
+                        <div class="instruction" style="margin-bottom: 15px;">
+                            <strong>Как создавать соединения:</strong><br>
+                            1. Нажмите "Режим соединения"<br>
+                            2. Кликните на первую точку<br>
+                            3. Кликните на вторую точку<br>
+                            4. Соединение создастся автоматически
+                        </div>
+                        
+                        <div class="btn-group">
+                            <button id="connection-mode-btn" class="btn btn-warning">
+                                <i class="fas fa-plug"></i> Режим соединения
+                            </button>
+                            <button id="cancel-connection-btn" class="btn btn-danger" style="display: none;">
+                                <i class="fas fa-times"></i> Отмена
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="section">
                     <div class="section-header">
                         <i class="fas fa-list"></i> Управление точками
                     </div>
                     <div class="section-body">
-                        <div class="form-group">
-                            <label>Фильтр точек:</label>
-                            <div class="checkbox-group">
-                                <label><input type="radio" name="filter" id="filter-all" checked> Все</label>
-                                <label><input type="radio" name="filter" id="filter-entrances"> Входы</label>
-                                <label><input type="radio" name="filter" id="filter-points"> Точки интереса</label>
-                                <label><input type="radio" name="filter" id="filter-routing"> Маршрутные</label>
-                            </div>
-                        </div>
                         <div class="object-list" id="points-list">
                             <!-- Список точек -->
                         </div>
                     </div>
                 </div>
 
-                <!-- Секция 3: Создание соединений -->
-                <div class="section">
-                    <div class="section-header">
-                        <i class="fas fa-link"></i> Создание соединений
-                    </div>
-                    <div class="section-body">
-                        <div class="btn-group" style="width: 100%; margin-bottom: 10px;">
-                            <button id="connection-mode-btn" class="btn btn-warning" style="flex: 1;">
-                                <i class="fas fa-plug"></i> Режим соединения
-                            </button>
-                            <button id="cancel-connection-btn" class="btn btn-danger" style="flex: 1; display: none;">
-                                <i class="fas fa-times"></i> Отмена
-                            </button>
-                        </div>
-                        <div class="instruction">
-                            <strong>Как создавать соединения:</strong><br>
-                            1. Нажмите "Режим соединения"<br>
-                            2. Кликните на первую точку маршрутизации<br>
-                            3. Кликните на вторую точку<br>
-                            4. Соединение создастся автоматически
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Секция 4: Управление соединениями -->
                 <div class="section">
                     <div class="section-header">
                         <i class="fas fa-project-diagram"></i> Управление соединениями
@@ -689,7 +920,6 @@
                     </div>
                 </div>
 
-                <!-- Секция 5: Тестирование маршрутов -->
                 <div class="section">
                     <div class="section-header">
                         <i class="fas fa-vial"></i> Тестирование маршрутов
@@ -707,31 +937,30 @@
                                 <option value="">Выберите точку</option>
                             </select>
                         </div>
-                        <div class="btn-group" style="width: 100%;">
-                            <button id="find-route-btn" class="btn btn-primary" style="flex: 1;" disabled>
+                        <div class="btn-group">
+                            <button id="find-route-btn" class="btn btn-primary" disabled>
                                 <i class="fas fa-route"></i> Найти маршрут
                             </button>
-                            <button id="clear-test-btn" class="btn btn-danger" style="flex: 1;">
+                            <button id="clear-test-btn" class="btn btn-danger">
                                 <i class="fas fa-times"></i> Очистить
                             </button>
                         </div>
-                        <div id="route-info" class="info-box" style="display: none;">
+                        <div id="route-info" class="info-box" style="display: none; margin-top: 15px;">
                             <!-- Информация о маршруте -->
                         </div>
                     </div>
                 </div>
 
-                <!-- Секция 6: Сброс данных -->
                 <div class="section reset-section">
                     <div class="section-header">
                         <i class="fas fa-trash"></i> Очистка данных
                     </div>
                     <div class="section-body">
-                        <div class="btn-group" style="width: 100%;">
-                            <button id="reset-points-btn" class="btn btn-warning" style="flex: 1;">
+                        <div class="btn-group">
+                            <button id="reset-points-btn" class="btn btn-warning">
                                 <i class="fas fa-undo"></i> Сбросить все точки
                             </button>
-                            <button id="reset-connections-btn" class="btn btn-danger" style="flex: 1;">
+                            <button id="reset-connections-btn" class="btn btn-danger">
                                 <i class="fas fa-unlink"></i> Сбросить все соединения
                             </button>
                         </div>
@@ -744,6 +973,57 @@
 
             <!-- Вкладка Экспорт -->
             <div class="tab-content" id="export-tab">
+                <!-- ... существующее содержимое вкладки Экспорт ... -->
+                <div class="section">
+                    <div class="section-header">
+                        <i class="fas fa-image"></i> Изображение плана
+                    </div>
+                    <div class="section-body">
+                        <div class="form-group">
+                            <label>Текущее изображение:</label>
+                            <div class="info-box" style="margin-bottom: 10px;" id="current-plan-info">
+                                <i class="fas fa-file-image"></i> <span id="current-plan-path">img/plan.png</span>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <button id="refresh-map-btn" class="btn btn-info btn-block">
+                                <i class="fas fa-sync-alt"></i> Обновить изображение карты
+                            </button>
+                            <small class="warning-text">
+                                Принудительно перезагрузит изображение плана (полезно после замены файла)
+                            </small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Загрузить новое изображение:</label>
+                            <input type="file" id="plan-image-upload" class="form-control" accept="image/*">
+                            <small class="warning-text">
+                                Поддерживаются форматы: PNG, JPG, JPEG, GIF, SVG
+                            </small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Или укажите путь к изображению:</label>
+                            <div class="btn-group">
+                                <input type="text" id="plan-image-path" class="form-control" value="img/plan.png" placeholder="путь/к/изображению.png">
+                                <button id="change-plan-btn" class="btn btn-primary">
+                                    <i class="fas fa-sync-alt"></i> Сменить
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="instruction">
+                            <strong>Как обновить план:</strong><br>
+                            1. Загрузите файл изображения через кнопку выбора файла<br>
+                            2. Или укажите путь к изображению вручную<br>
+                            3. Или просто нажмите "Обновить изображение карты" после замены файла<br>
+                            4. Изображение автоматически подстроится под размеры 1920x1080<br>
+                            5. Все кабинеты и маршруты сохранятся
+                        </div>
+                    </div>
+                </div>
+                
                 <div class="section">
                     <div class="section-header">
                         <i class="fas fa-globe"></i> Экспорт веб-интерфейса
@@ -756,7 +1036,7 @@
                         
                         <div class="form-group">
                             <label>Описание карты:</label>
-                            <textarea id="webmap-description" class="form-control" rows="2" placeholder="Краткое описание карты">Интерактивная карта офиса с поиском кабинетов и построением маршрутов</textarea>
+                            <textarea id="webmap-description" class="form-control" rows="3" placeholder="Краткое описание карты">Интерактивная карта офиса с поиском кабинетов и построением маршрутов</textarea>
                         </div>
                         
                         <div class="form-group">
@@ -772,11 +1052,11 @@
                         <div class="form-group">
                             <label>Функции веб-интерфейса:</label>
                             <div class="info-box">
-                                <div style="margin-bottom: 10px;">
+                                <div>
                                     <input type="checkbox" id="feature-search" checked>
                                     <label for="feature-search" style="margin-left: 8px;">Поиск кабинетов и точек</label>
                                 </div>
-                                <div style="margin-bottom: 10px;">
+                                <div>
                                     <input type="checkbox" id="feature-routing" checked>
                                     <label for="feature-routing" style="margin-left: 8px;">Построение маршрутов</label>
                                 </div>
@@ -795,10 +1075,18 @@
                                 Создаст HTML-файл с интерактивной картой для публикации на сайте
                             </small>
                         </div>
+                        
+                        <div class="form-group">
+                            <button id="export-mobile-btn" class="btn btn-success btn-block">
+                                <i class="fas fa-mobile-alt"></i> Экспортировать мобильную версию
+                            </button>
+                            <small class="warning-text">
+                                Создаст отдельный HTML-файл, оптимизированный для мобильных устройств
+                            </small>
+                        </div>
                     </div>
                 </div>
                 
-                <!-- Секция: Статистика данных -->
                 <div class="section">
                     <div class="section-header">
                         <i class="fas fa-chart-bar"></i> Статистика данных
@@ -807,15 +1095,15 @@
                         <div class="form-group">
                             <label>Текущее состояние:</label>
                             <div class="info-box">
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <div style="display: flex; justify-content: space-between;">
                                     <span>Кабинеты:</span>
                                     <span id="stats-rooms" style="font-weight: bold;">0</span>
                                 </div>
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <div style="display: flex; justify-content: space-between;">
                                     <span>Точки маршрутизации:</span>
                                     <span id="stats-points" style="font-weight: bold;">0</span>
                                 </div>
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <div style="display: flex; justify-content: space-between;">
                                     <span>Соединения:</span>
                                     <span id="stats-connections" style="font-weight: bold;">0</span>
                                 </div>
@@ -838,7 +1126,6 @@
                     </div>
                 </div>
 
-                <!-- Секция: Тестирование перед экспортом -->
                 <div class="section">
                     <div class="section-header">
                         <i class="fas fa-vial"></i> Тестирование перед экспортом
@@ -846,11 +1133,9 @@
                     <div class="section-body">
                         <div class="form-group">
                             <label>Проверка маршрутизации:</label>
-                            <div class="btn-group" style="width: 100%;">
-                                <button id="test-route-btn" class="btn btn-info btn-block">
-                                    <i class="fas fa-route"></i> Протестировать случайный маршрут
-                                </button>
-                            </div>
+                            <button id="test-route-btn" class="btn btn-info btn-block">
+                                <i class="fas fa-route"></i> Протестировать случайный маршрут
+                            </button>
                             <small class="warning-text">
                                 Проверит работу алгоритма поиска пути
                             </small>
@@ -862,9 +1147,13 @@
                 </div>
             </div>
 
+            <!-- НОВАЯ ВКЛАДКА: Импорт/Экспорт карт -->
+            <div class="tab-content" id="import-export-tab"></div>
+
+            <!-- Статус бар -->
             <div class="status-bar">
                 <span id="status">Готов к работе</span>
-                <span style="float: right">Данные сохраняются автоматически</span>
+                <span>Данные сохраняются автоматически</span>
             </div>
         </div>
     </div>
@@ -881,62 +1170,29 @@
         </div>
     </div>
 
+    <!-- Мобильная панель маршрутизации будет создаваться здесь динамически -->
+    <div id="mobile-routing-panel-container"></div>
+
     <!-- Подключаем Leaflet -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
-    <!-- Основные утилиты -->
+
+    <!-- Основные утилиты (ПОРЯДОК ВАЖЕН!) -->
     <script src="js/core/utils.js"></script>
     <script src="js/core/map-core.js"></script>
     <script src="js/core/data-manager.js"></script>
-    
+
     <!-- Редакторы -->
     <script src="js/editors/polygons.js"></script>
-    <script src="js/editors/routing-graph.js"></script>
-    <script src="js/editors/routing-visual.js"></script>
     <script src="js/editors/routing-editor.js"></script>
-    
+
     <!-- Экспорт -->
     <script src="js/export/web-exporter.js"></script>
+    <script src="js/export/mobile-exporter.js"></script>
     
+    <!-- НОВЫЙ ФАЙЛ: Импорт/Экспорт карт -->
+    <script src="js/core/importer.js"></script>
+	
     <!-- Основной скрипт -->
     <script src="js/main.js"></script>
-    
-    <!-- Скрипт проверки файлов -->
-    <script>
-    // Простая проверка загрузки файлов
-    setTimeout(function() {
-        console.log('=== ПРОВЕРКА ЗАГРУЗКИ ФАЙЛОВ ===');
-        console.log('Utils:', typeof Utils !== 'undefined' ? '✓' : '✗');
-        console.log('MapCore:', typeof MapCore !== 'undefined' ? '✓' : '✗');
-        console.log('DataManager:', typeof DataManager !== 'undefined' ? '✓' : '✗');
-        console.log('PolygonsEditor:', typeof PolygonsEditor !== 'undefined' ? '✓' : '✗');
-        console.log('RoutingGraph:', typeof RoutingGraph !== 'undefined' ? '✓' : '✗');
-        console.log('RoutingVisual:', typeof RoutingVisual !== 'undefined' ? '✓' : '✗');
-        console.log('RoutingEditor:', typeof RoutingEditor !== 'undefined' ? '✓' : '✗');
-        console.log('WebExporter:', typeof WebExporter !== 'undefined' ? '✓' : '✗');
-        console.log('OfficeMapEditor:', typeof OfficeMapEditor !== 'undefined' ? '✓' : '✗');
-        
-        if (typeof Utils === 'undefined') {
-            console.error('Utils.js не загружен! Проверьте путь: js/core/utils.js');
-        }
-        if (typeof MapCore === 'undefined') {
-            console.error('MapCore.js не загружен! Проверьте путь: js/core/map-core.js');
-        }
-        if (typeof DataManager === 'undefined') {
-            console.error('DataManager.js не загружен! Проверьте путь: js/core/data-manager.js');
-        }
-        
-        // Проверяем папку img
-        const img = new Image();
-        img.onload = function() {
-            console.log('Изображение plan.png загружено ✓');
-        };
-        img.onerror = function() {
-            console.warn('Изображение plan.png не найдено в папке img/ ✗');
-            console.log('Система создаст тестовую подложку');
-        };
-        img.src = 'img/plan.png?' + new Date().getTime(); // Добавляем timestamp для обхода кэша
-    }, 1000);
-    </script>
 </body>
 </html>
