@@ -494,6 +494,72 @@ class Utils {
         
         Utils.showNotification(`${context ? context + ': ' : ''}${message}`, 'error');
     }
+	
+	/**
+	 * Показывает кастомное модальное окно с произвольным HTML
+	 * @param {string} title - Заголовок модального окна
+	 * @param {string} htmlContent - HTML содержимое
+	 * @param {Array} buttons - Массив названий кнопок
+	 * @returns {Promise<string>} Promise, который разрешается названием нажатой кнопки
+	 */
+	static async showCustomModal(title, htmlContent, buttons = ['Отмена', 'ОК']) {
+		return new Promise((resolve) => {
+			const modalId = 'custom-modal-' + Date.now();
+			
+			// Создаем модальное окно
+			const modalHTML = `
+				<div class="modal active" id="${modalId}">
+					<div class="modal-content" style="max-width: 600px;">
+						<div class="modal-header">${title}</div>
+						<div class="modal-body">
+							${htmlContent}
+						</div>
+						<div class="modal-footer">
+							${buttons.map((btn, index) => 
+								`<button class="btn ${index === buttons.length - 1 ? 'btn-success' : 'btn-danger'}" 
+										data-result="${btn}">${btn}</button>`
+							).join('')}
+						</div>
+					</div>
+				</div>
+			`;
+			
+			// Добавляем в body
+			const modalDiv = document.createElement('div');
+			modalDiv.innerHTML = modalHTML;
+			document.body.appendChild(modalDiv);
+			
+			const modalElement = document.getElementById(modalId);
+			
+			// Обработчики для кнопок
+			modalElement.querySelectorAll('button').forEach(button => {
+				button.addEventListener('click', () => {
+					const result = button.dataset.result;
+					modalElement.remove();
+					resolve(result);
+				});
+			});
+			
+			// Закрытие по клику на фон
+			modalElement.addEventListener('click', (e) => {
+				if (e.target === modalElement) {
+					modalElement.remove();
+					resolve(null);
+				}
+			});
+			
+			// Закрытие по Escape
+			const closeOnEscape = (e) => {
+				if (e.key === 'Escape') {
+					modalElement.remove();
+					document.removeEventListener('keydown', closeOnEscape);
+					resolve(null);
+				}
+			};
+			
+			document.addEventListener('keydown', closeOnEscape);
+		});
+	}	
 }
 
 // Экспортируем утилиты для глобального использования
