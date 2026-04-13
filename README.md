@@ -157,6 +157,8 @@ Push to the Branch (git push origin feature/AmazingFeature).
 
 Open a Pull Request.
 
+![Скриншот редактора](screenshots/screenshot.png)
+
 📝 License
 This project is open-source and available under the MIT License.
 
