@@ -2,8 +2,6 @@
 
 A powerful, browser-based WYSIWYG editor for creating interactive office maps with room polygons and intelligent indoor navigation. Design your floor plan, define rooms, create waypoints, connect paths, and export a standalone interactive web map for desktop and mobile users.
 
-![Editor Preview](https://via.placeholder.com/800x400?text=Office+Map+Editor+Preview)
-
 ## ✨ Features
 
 - **Drag-and-Drop Floor Plan**: Use any image (PNG, JPG) as your office blueprint.
