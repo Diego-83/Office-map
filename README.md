@@ -4,7 +4,7 @@ A powerful, browser-based WYSIWYG editor for creating interactive office maps wi
 
 ## 🌐 Live Demo
 
-**Попробуйте редактор онлайн:** [diego-83.github.io/Office-map](https://diego-83.github.io/Office-map/)
+**Try the editor online (Попробуйте редактор онлайн):** [diego-83.github.io/Office-map](https://diego-83.github.io/Office-map/)
 
 ## ✨ Features
 
