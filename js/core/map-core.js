@@ -7,7 +7,7 @@ class MapCore {
         this.map = null;
         this.imageOverlay = null;
         this.layers = {
-            rooms: {},
+            rooms: {},     // Объекты комнат {polygon: L.Polygon, label: L.DivIcon}
             points: {},
             routes: {},
             routePoints: {},
@@ -17,6 +17,7 @@ class MapCore {
         this.imageBounds = null;
         this.coordsDisplay = null;
         this.initPromise = null;
+        this.layerGroups = null;
     }
 
     /**
@@ -25,59 +26,125 @@ class MapCore {
      * @param {string} imagePath - Путь к изображению плана
      * @returns {Promise<boolean>} Promise с результатом инициализации
      */
+	 
     init(mapContainerId, imagePath) {
+		return new Promise((resolve, reject) => {
+			try {
+				console.log('Инициализация карты...');
+				
+				// Сохраняем путь к изображению
+				this.currentImagePath = imagePath;
+				
+				// ДОБАВЛЕНО: Добавляем параметр версии для избежания кеширования
+				const cacheBuster = '?v=' + new Date().getTime();
+				const imageUrl = imagePath + cacheBuster;
+				
+				console.log('Загрузка изображения с параметром:', imageUrl);
+				
+				// Создаем карту
+				this.map = L.map(mapContainerId, {
+					crs: L.CRS.Simple,
+					minZoom: -2,
+					maxZoom: 2,
+					zoomControl: false,
+					attributionControl: false
+				});
+
+				// Устанавливаем границы для изображения 1920x1080
+				this.imageBounds = [[1080, 0], [0, 1920]];
+				
+				// Добавляем изображение плана с параметром против кеширования
+				this.imageOverlay = L.imageOverlay(imageUrl, this.imageBounds, {
+					opacity: 1
+				}).addTo(this.map);
+
+				// Устанавливаем вид на весь план
+				this.map.fitBounds(this.imageBounds);
+
+				// Центрируем карту
+				this.map.setView([540, 960], 0);
+
+				// Добавляем элементы управления
+				L.control.zoom({
+					position: 'topright'
+				}).addTo(this.map);
+
+				// Создаем отображение координат
+				this.createCoordsDisplay();
+
+				// Настраиваем обработчики событий
+				this.setupEventHandlers();
+
+				// Инициализируем слои
+				this.initLayers();
+
+				// Обновляем состояние
+				this.editMode = null;
+
+				console.log('Карта успешно инициализирована с размерами 1920x1080');
+				resolve(true);
+
+			} catch (error) {
+				console.error('Ошибка инициализации карты:', error);
+				reject(error);
+			}
+		});
+	}
+
+	changePlanImage(newImagePath) {
         return new Promise((resolve, reject) => {
             try {
-                console.log('Инициализация карты...');
+                console.log('Смена изображения плана:', newImagePath);
                 
-                // Создаем карту
-                this.map = L.map(mapContainerId, {
-                    crs: L.CRS.Simple,
-                    minZoom: -2,
-                    maxZoom: 2,
-                    zoomControl: false,
-                    attributionControl: false
-                });
-
-                // Устанавливаем границы для изображения 1920x1080
-                // В CRS.Simple: Y идет сверху вниз (0-1080), X слева направо (0-1920)
-                this.imageBounds = [[0, 0], [1080, 1920]];
+                if (!this.map) {
+                    reject(new Error('Карта не инициализирована'));
+                    return;
+                }
                 
-                console.log('Установлены границы карты:', this.imageBounds);
+                // Добавляем параметр версии для избежания кеширования
+                const cacheBuster = '?v=' + new Date().getTime();
+                const imageUrl = newImagePath + cacheBuster;
                 
-                // Добавляем изображение плана
-                this.imageOverlay = L.imageOverlay(imagePath, this.imageBounds, {
-                    opacity: 1
-                }).addTo(this.map);
-
-                // Устанавливаем вид на весь план
-                this.map.fitBounds(this.imageBounds);
-
-                // Центрируем карту
-                this.map.setView([540, 960], 0); // центр 1080/2=540, 1920/2=960
-
-                // Добавляем элементы управления
-                L.control.zoom({
-                    position: 'topright'
-                }).addTo(this.map);
-
-                // Создаем отображение координат
-                this.createCoordsDisplay();
-
-                // Настраиваем обработчики событий
-                this.setupEventHandlers();
-
-                // Инициализируем слои
-                this.initLayers();
-
-                // Обновляем состояние
-                this.editMode = null;
-
-                console.log('Карта успешно инициализирована с размерами 1920x1080');
-                resolve(true);
-
+                // Проверяем существование файла
+                const img = new Image();
+                img.onload = () => {
+                    // Удаляем старое изображение
+                    if (this.imageOverlay) {
+                        this.map.removeLayer(this.imageOverlay);
+                    }
+                    
+                    // Добавляем новое изображение
+                    this.imageOverlay = L.imageOverlay(imageUrl, this.imageBounds, {
+                        opacity: 1
+                    }).addTo(this.map);
+                    
+                    // Сохраняем новый путь (без параметра версии)
+                    this.currentImagePath = newImagePath;
+                    
+                    console.log('Изображение плана успешно обновлено');
+                    
+                    // Показываем уведомление
+                    if (typeof Utils !== 'undefined') {
+                        Utils.showNotification('План офиса обновлен', 'success');
+                    }
+                    
+                    resolve(true);
+                };
+                
+                img.onerror = () => {
+                    console.error('Ошибка загрузки изображения:', newImagePath);
+                    
+                    if (typeof Utils !== 'undefined') {
+                        Utils.showNotification('Не удалось загрузить изображение: ' + newImagePath, 'error');
+                    }
+                    
+                    reject(new Error('Не удалось загрузить изображение: ' + newImagePath));
+                };
+                
+                img.src = imageUrl;
+                
             } catch (error) {
-                console.error('Ошибка инициализации карты:', error);
+                console.error('Ошибка при смене изображения:', error);
                 reject(error);
             }
         });
@@ -134,7 +201,7 @@ class MapCore {
      * @param {L.LatLng} latlng - Координаты
      */
     updateCoordsDisplay(latlng) {
-        if (this.coordsDisplay) {
+        if (this.coordsDisplay && latlng) {
             const y = Math.round(latlng.lat);
             const x = Math.round(latlng.lng);
             this.coordsDisplay.textContent = `Координаты: y=${y}, x=${x}`;
@@ -215,7 +282,7 @@ class MapCore {
     clearTempLayers() {
         Object.keys(this.layers.temp).forEach(layerId => {
             if (this.layers.temp[layerId]) {
-                this.map.removeLayer(this.layers.temp[layerId]);
+                this.layerGroups.temp.removeLayer(this.layers.temp[layerId]);
                 delete this.layers.temp[layerId];
             }
         });
@@ -224,7 +291,7 @@ class MapCore {
     /**
      * Добавление кабинета на карту
      * @param {object} roomData - Данные кабинета
-     * @returns {L.Polygon|null} Созданный полигон
+     * @returns {object|null} Созданный объект комнаты {polygon: L.Polygon, label: L.DivIcon}
      */
     addRoom(roomData) {
         if (!roomData || !roomData.vertices || roomData.vertices.length < 3) {
@@ -239,11 +306,18 @@ class MapCore {
                 weight: 2,
                 fillColor: roomData.color || '#3498db',
                 fillOpacity: 0.4,
-                className: 'room-polygon'
+                className: 'room-polygon',
+                roomId: roomData.id // Добавляем кастомное свойство
             });
 
             // Добавляем на карту
             polygon.addTo(this.layerGroups.rooms);
+
+            // Создаем подпись для комнаты
+            const label = this.createRoomLabel(roomData);
+            if (label) {
+                label.addTo(this.layerGroups.rooms);
+            }
 
             // Создаем popup с информацией
             const popupContent = this.createRoomPopup(roomData);
@@ -258,19 +332,92 @@ class MapCore {
                 }
             });
 
-            // Сохраняем в слои
+            // Сохраняем объект комнаты
+            const roomObject = {
+                polygon: polygon,
+                label: label,
+                data: roomData
+            };
+
             if (roomData.id) {
-                this.layers.rooms[roomData.id] = polygon;
+                this.layers.rooms[roomData.id] = roomObject;
+                console.log('Кабинет добавлен на карту (слой сохранен):', roomData.id);
             }
 
-            console.log('Кабинет добавлен на карту:', roomData.id);
-            return polygon;
+            return roomObject;
 
         } catch (error) {
             console.error('Ошибка добавления кабинета на карту:', error);
-            Utils.showNotification('Ошибка добавления кабинета', 'error');
+            // Используем Utils если он доступен
+            if (typeof Utils !== 'undefined' && Utils.showNotification) {
+                Utils.showNotification('Ошибка добавления кабинета', 'error');
+            }
             return null;
         }
+    }
+
+    /**
+     * Создание подписи для комнаты
+     * @param {object} roomData - Данные кабинета
+     * @returns {L.DivIcon|null} Подпись комнаты
+     */
+    createRoomLabel(roomData) {
+        try {
+            if (!roomData.center || roomData.center.length !== 2) {
+                // Вычисляем центр комнаты, если не предоставлен
+                const center = this.calculatePolygonCenter(roomData.vertices);
+                roomData.center = center;
+            }
+
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'room-label';
+            labelDiv.innerHTML = `
+                <div style="
+                    background: rgba(255, 255, 255, 0.9);
+                    border: 1px solid ${roomData.color || '#3498db'};
+                    border-radius: 4px;
+                    padding: 2px 6px;
+                    font-size: 12px;
+                    font-weight: bold;
+                    color: ${roomData.color || '#3498db'};
+                    white-space: nowrap;
+                    pointer-events: none;
+                ">
+                    ${Utils.escapeHtml(roomData.name)}
+                </div>
+            `;
+
+            const label = L.divIcon({
+                html: labelDiv,
+                className: 'room-label-container',
+                iconSize: null,
+                iconAnchor: [0, 0]
+            });
+
+            return L.marker(roomData.center, { icon: label });
+        } catch (error) {
+            console.error('Ошибка создания подписи комнаты:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Вычисление центра полигона
+     * @param {Array} vertices - Вершины полигона
+     * @returns {Array} Координаты центра [y, x]
+     */
+    calculatePolygonCenter(vertices) {
+        if (!vertices || vertices.length === 0) return [0, 0];
+        
+        let sumY = 0;
+        let sumX = 0;
+        
+        for (const vertex of vertices) {
+            sumY += vertex[0]; // y
+            sumX += vertex[1]; // x
+        }
+        
+        return [sumY / vertices.length, sumX / vertices.length];
     }
 
     /**
@@ -279,16 +426,24 @@ class MapCore {
      * @returns {string} HTML содержимое popup
      */
     createRoomPopup(roomData) {
+        const roomName = Utils.escapeHtml(roomData.name || 'Без названия');
+        const roomColor = roomData.color || '#3498db';
+        const department = Utils.escapeHtml(roomData.department || '-');
+        const employees = Utils.escapeHtml(roomData.employees || '-');
+        const phone = Utils.escapeHtml(roomData.phone || '-');
+        const verticesCount = roomData.vertices?.length || 0;
+        const area = (roomData.area || 0).toFixed(0);
+
         return `
             <div style="padding: 10px; max-width: 300px;">
-                <h4 style="margin: 0 0 10px 0; color: ${roomData.color}">
-                    <i class="fas fa-door-closed"></i> ${Utils.escapeHtml(roomData.name)}
+                <h4 style="margin: 0 0 10px 0; color: ${roomColor}">
+                    <i class="fas fa-door-closed"></i> ${roomName}
                 </h4>
-                <p><strong>Отдел:</strong> ${Utils.escapeHtml(roomData.department || '-')}</p>
-                <p><strong>Сотрудники:</strong> ${Utils.escapeHtml(roomData.employees || '-')}</p>
-                <p><strong>Телефон:</strong> ${Utils.escapeHtml(roomData.phone || '-')}</p>
-                <p><strong>Вершин:</strong> ${roomData.vertices?.length || 0}</p>
-                <p><strong>Площадь:</strong> ${(roomData.area || 0).toFixed(0)} кв.ед.</p>
+                <p><strong>Отдел:</strong> ${department}</p>
+                <p><strong>Сотрудники:</strong> ${employees}</p>
+                <p><strong>Телефон:</strong> ${phone}</p>
+                <p><strong>Вершин:</strong> ${verticesCount}</p>
+                <p><strong>Площадь:</strong> ${area} кв.ед.</p>
                 <div style="margin-top: 10px; font-size: 12px; color: #666;">
                     <i class="fas fa-mouse-pointer"></i> Клик для выделения
                 </div>
@@ -297,15 +452,21 @@ class MapCore {
     }
 
     /**
-     * Обновление кабинета на карту
+     * Обновление кабинета на карте
      * @param {string} roomId - ID кабинета
      * @param {object} roomData - Новые данные кабинета
-     * @returns {L.Polygon|null} Обновленный полигон
+     * @returns {object|null} Обновленный объект комнаты
      */
     updateRoom(roomId, roomData) {
         // Удаляем старый полигон
         if (this.layers.rooms[roomId]) {
-            this.layerGroups.rooms.removeLayer(this.layers.rooms[roomId]);
+            const oldRoom = this.layers.rooms[roomId];
+            if (oldRoom.polygon) {
+                this.layerGroups.rooms.removeLayer(oldRoom.polygon);
+            }
+            if (oldRoom.label) {
+                this.layerGroups.rooms.removeLayer(oldRoom.label);
+            }
             delete this.layers.rooms[roomId];
         }
 
@@ -320,7 +481,13 @@ class MapCore {
      */
     removeRoom(roomId) {
         if (this.layers.rooms[roomId]) {
-            this.layerGroups.rooms.removeLayer(this.layers.rooms[roomId]);
+            const room = this.layers.rooms[roomId];
+            if (room.polygon) {
+                this.layerGroups.rooms.removeLayer(room.polygon);
+            }
+            if (room.label) {
+                this.layerGroups.rooms.removeLayer(room.label);
+            }
             delete this.layers.rooms[roomId];
             return true;
         }
@@ -332,22 +499,83 @@ class MapCore {
      * @param {string} roomId - ID кабинета
      */
     highlightRoom(roomId) {
-        // Сбрасываем подсветку всех кабинетов
-        Object.values(this.layers.rooms).forEach(polygon => {
-            polygon.setStyle({
-                weight: 2,
-                fillOpacity: 0.4
-            });
-        });
-
-        // Подсвечиваем выбранный кабинет
-        if (this.layers.rooms[roomId]) {
-            this.layers.rooms[roomId].setStyle({
-                weight: 4,
-                fillOpacity: 0.6
-            });
-            this.layers.rooms[roomId].openPopup();
+        console.log('=== DEBUG highlightRoom ===');
+        console.log('roomId:', roomId);
+        console.log('this.layers.rooms:', this.layers.rooms);
+        console.log('this.layers.rooms[roomId]:', this.layers.rooms[roomId]);
+        
+        // Проверяем, что roomId существует в слоях
+        if (!roomId || !this.layers.rooms[roomId]) {
+            console.warn('Комната не найдена для подсветки:', roomId);
+            return;
         }
+        
+        // Получаем объект комнаты
+        const room = this.layers.rooms[roomId];
+        
+        // Проверяем, что полигон существует
+        if (!room || !room.polygon || typeof room.polygon.setStyle !== 'function') {
+            console.error('room.polygon не является Leaflet полигоном или не имеет метода setStyle:', room);
+            return;
+        }
+        
+        try {
+            // Сначала сбрасываем подсветку всех кабинетов
+            Object.values(this.layers.rooms).forEach(roomObj => {
+                if (roomObj && roomObj.polygon && typeof roomObj.polygon.setStyle === 'function') {
+                    try {
+                        const originalColor = roomObj.data?.color || '#3498db';
+                        roomObj.polygon.setStyle({
+                            color: originalColor,
+                            fillColor: originalColor,
+                            fillOpacity: 0.4,
+                            weight: 2
+                        });
+                    } catch (error) {
+                        console.warn('Ошибка при сбросе подсветки комнаты', roomObj.data?.id, ':', error);
+                    }
+                }
+            });
+            
+            // Подсвечиваем выбранный кабинет
+            room.polygon.setStyle({
+                color: '#f39c12',
+                fillColor: '#f39c12',
+                fillOpacity: 0.3,
+                weight: 4
+            });
+            
+            // Открываем popup
+            if (room.polygon.openPopup) {
+                room.polygon.openPopup();
+            }
+            
+            console.log('Комната успешно подсвечена:', roomId);
+            
+        } catch (error) {
+            console.error('Ошибка подсветки комнаты:', error);
+        }
+    }
+
+    /**
+     * Сброс подсветки всех кабинетов
+     */
+    clearRoomHighlights() {
+        Object.values(this.layers.rooms).forEach(roomObj => {
+            if (roomObj && roomObj.polygon && typeof roomObj.polygon.setStyle === 'function') {
+                try {
+                    const originalColor = roomObj.data?.color || '#3498db';
+                    roomObj.polygon.setStyle({
+                        color: originalColor,
+                        fillColor: originalColor,
+                        fillOpacity: 0.4,
+                        weight: 2
+                    });
+                } catch (error) {
+                    console.warn('Ошибка при сбросе подсветки комнаты', roomObj.data?.id, ':', error);
+                }
+            }
+        });
     }
 
     /**
@@ -398,7 +626,9 @@ class MapCore {
 
         } catch (error) {
             console.error('Ошибка добавления точки на карту:', error);
-            Utils.showNotification('Ошибка добавления точки', 'error');
+            if (typeof Utils !== 'undefined' && Utils.showNotification) {
+                Utils.showNotification('Ошибка добавления точки', 'error');
+            }
             return null;
         }
     }
@@ -409,14 +639,21 @@ class MapCore {
      * @returns {string} HTML содержимое popup
      */
     createPointPopup(pointData) {
+        const pointName = Utils.escapeHtml(pointData.name || 'Точка');
+        const pointColor = pointData.color || '#e74c3c';
+        const pointType = Utils.escapeHtml(pointData.type || '-');
+        const pointDesc = Utils.escapeHtml(pointData.description || '-');
+        const pointY = pointData.y || 0;
+        const pointX = pointData.x || 0;
+
         return `
             <div style="padding: 10px; max-width: 300px;">
-                <h4 style="margin: 0 0 10px 0; color: ${pointData.color}">
-                    <i class="fas fa-map-marker-alt"></i> ${Utils.escapeHtml(pointData.name)}
+                <h4 style="margin: 0 0 10px 0; color: ${pointColor}">
+                    <i class="fas fa-map-marker-alt"></i> ${pointName}
                 </h4>
-                <p><strong>Тип:</strong> ${Utils.escapeHtml(pointData.type || '-')}</p>
-                <p><strong>Координаты:</strong> y=${pointData.y}, x=${pointData.x}</p>
-                <p><strong>Описание:</strong> ${Utils.escapeHtml(pointData.description || '-')}</p>
+                <p><strong>Тип:</strong> ${pointType}</p>
+                <p><strong>Координаты:</strong> y=${pointY}, x=${pointX}</p>
+                <p><strong>Описание:</strong> ${pointDesc}</p>
                 <div style="margin-top: 10px; font-size: 12px; color: #666;">
                     <i class="fas fa-mouse-pointer"></i> Клик для выделения
                 </div>
@@ -462,19 +699,23 @@ class MapCore {
     highlightPoint(pointId) {
         // Сбрасываем подсветку всех точек
         Object.values(this.layers.points).forEach(marker => {
-            marker.setStyle({
-                radius: 8,
-                fillOpacity: 0.8
-            });
+            if (marker && marker.setStyle) {
+                marker.setStyle({
+                    radius: 8,
+                    fillOpacity: 0.8
+                });
+            }
         });
 
         // Подсвечиваем выбранную точку
-        if (this.layers.points[pointId]) {
+        if (this.layers.points[pointId] && this.layers.points[pointId].setStyle) {
             this.layers.points[pointId].setStyle({
                 radius: 10,
                 fillOpacity: 1
             });
-            this.layers.points[pointId].openPopup();
+            if (this.layers.points[pointId].openPopup) {
+                this.layers.points[pointId].openPopup();
+            }
         }
     }
 
@@ -524,7 +765,9 @@ class MapCore {
 
         } catch (error) {
             console.error('Ошибка добавления маршрута на карту:', error);
-            Utils.showNotification('Ошибка добавления маршрута', 'error');
+            if (typeof Utils !== 'undefined' && Utils.showNotification) {
+                Utils.showNotification('Ошибка добавления маршрута', 'error');
+            }
             return null;
         }
     }
@@ -535,19 +778,22 @@ class MapCore {
      * @returns {string} HTML содержимое popup
      */
     createRoutePopup(routeData) {
-        const startName = routeData.startName || 'Начало';
-        const endName = routeData.endName || 'Конец';
+        const routeName = Utils.escapeHtml(routeData.name || 'Маршрут');
+        const routeColor = routeData.color || '#2ecc71';
+        const startName = Utils.escapeHtml(routeData.startName || 'Начало');
+        const endName = Utils.escapeHtml(routeData.endName || 'Конец');
         const pointCount = routeData.points?.length || 0;
+        const routeLength = (routeData.length || 0).toFixed(0);
         
         return `
             <div style="padding: 10px; max-width: 300px;">
-                <h4 style="margin: 0 0 10px 0; color: ${routeData.color}">
-                    <i class="fas fa-route"></i> ${Utils.escapeHtml(routeData.name)}
+                <h4 style="margin: 0 0 10px 0; color: ${routeColor}">
+                    <i class="fas fa-route"></i> ${routeName}
                 </h4>
-                <p><strong>От:</strong> ${Utils.escapeHtml(startName)}</p>
-                <p><strong>До:</strong> ${Utils.escapeHtml(endName)}</p>
+                <p><strong>От:</strong> ${startName}</p>
+                <p><strong>До:</strong> ${endName}</p>
                 <p><strong>Точек маршрута:</strong> ${pointCount}</p>
-                <p><strong>Длина:</strong> ${(routeData.length || 0).toFixed(0)} ед.</p>
+                <p><strong>Длина:</strong> ${routeLength} ед.</p>
                 <div style="margin-top: 10px; font-size: 12px; color: #666;">
                     <i class="fas fa-mouse-pointer"></i> Клик для выделения
                 </div>
@@ -593,19 +839,23 @@ class MapCore {
     highlightRoute(routeId) {
         // Сбрасываем подсветку всех маршрутов
         Object.values(this.layers.routes).forEach(polyline => {
-            polyline.setStyle({
-                weight: 3,
-                opacity: 0.8
-            });
+            if (polyline && polyline.setStyle) {
+                polyline.setStyle({
+                    weight: 3,
+                    opacity: 0.8
+                });
+            }
         });
 
         // Подсвечиваем выбранный маршрут
-        if (this.layers.routes[routeId]) {
+        if (this.layers.routes[routeId] && this.layers.routes[routeId].setStyle) {
             this.layers.routes[routeId].setStyle({
                 weight: 5,
                 opacity: 1
             });
-            this.layers.routes[routeId].openPopup();
+            if (this.layers.routes[routeId].openPopup) {
+                this.layers.routes[routeId].openPopup();
+            }
         }
     }
 
@@ -686,7 +936,9 @@ class MapCore {
     clearAllLayers() {
         // Очищаем группы слоев
         Object.values(this.layerGroups).forEach(group => {
-            group.clearLayers();
+            if (group && group.clearLayers) {
+                group.clearLayers();
+            }
         });
 
         // Очищаем объекты слоев
@@ -712,6 +964,44 @@ class MapCore {
             routes: Object.keys(this.layers.routes).length,
             routePoints: Object.keys(this.layers.routePoints).length
         };
+    }
+
+    /**
+     * Получение центра карты
+     * @returns {Array} Координаты центра [y, x]
+     */
+    getCenter() {
+        const center = this.map.getCenter();
+        return [center.lat, center.lng];
+    }
+
+    /**
+     * Установка вида карты
+     * @param {Array} center - Центр [y, x]
+     * @param {number} zoom - Уровень масштабирования
+     */
+    setView(center, zoom) {
+        if (center && center.length === 2) {
+            this.map.setView([center[0], center[1]], zoom || 0);
+        }
+    }
+
+    /**
+     * Получение текущего масштаба
+     * @returns {number} Текущий масштаб
+     */
+    getZoom() {
+        return this.map.getZoom();
+    }
+
+    /**
+     * Фитирование границ
+     * @param {Array} bounds - Границы [[y_min, x_min], [y_max, x_max]]
+     */
+    fitBounds(bounds) {
+        if (bounds && bounds.length === 2) {
+            this.map.fitBounds(bounds);
+        }
     }
 }
 
