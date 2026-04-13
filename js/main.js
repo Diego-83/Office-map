@@ -1,802 +1,848 @@
-/**
- * Основной файл приложения - связывает все компоненты
- * Адаптирован под новую структуру с маршрутизацией
- */
+// main.js - Исправленная версия с кнопкой обновления карты
 
-class OfficeMapEditor {
-    constructor() {
-        this.mapCore = null;
-        this.dataManager = null;
-        this.roomsEditor = null;
-        this.routingEditor = null;
-        this.webExporter = null;
-        
-        this.init();
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Загрузка редактора карты офиса...');
+    
+    // Проверяем наличие Leaflet
+    if (typeof L === 'undefined') {
+        alert('Ошибка: Leaflet не загружен!');
+        return;
     }
+    
+    // Ждем загрузки всех скриптов
+    setTimeout(() => {
+        checkAndInitApplication();
+    }, 500);
+});
 
-    /**
-     * Инициализация приложения
-     */
-    init() {
-        console.log('=== ИНИЦИАЛИЗАЦИЯ РЕДАКТОРА КАРТЫ ОФИСА ===');
+function checkAndInitApplication() {
+    console.log('Проверка загрузки классов...');
+    
+    // Проверяем наличие всех необходимых классов
+    const classesToCheck = [
+        { name: 'Utils', file: 'js/core/utils.js' },
+        { name: 'MapCore', file: 'js/core/map-core.js' },
+        { name: 'DataManager', file: 'js/core/data-manager.js' },
+        { name: 'PolygonsEditor', file: 'js/editors/polygons.js' },
+        { name: 'RoutingEditor', file: 'js/editors/routing-editor.js' },
+        { name: 'WebExporter', file: 'js/export/web-exporter.js' },
+        { name: 'MobileExporter', file: 'js/export/mobile-exporter.js' }
+    ];
+    
+    const missingClasses = [];
+    const loadedClasses = [];
+    
+    classesToCheck.forEach(item => {
+        if (typeof window[item.name] === 'undefined') {
+            missingClasses.push(`${item.name} (${item.file})`);
+        } else {
+            loadedClasses.push(item.name);
+        }
+    });
+    
+    console.log('Загруженные классы:', loadedClasses);
+    console.log('Отсутствующие классы:', missingClasses);
+    
+    if (missingClasses.length > 0) {
+        console.error('Не все классы загружены!');
         
+        // Ждем еще и пробуем снова
+        setTimeout(() => {
+            checkAndInitApplication();
+        }, 1000);
+        return;
+    }
+    
+    console.log('Все классы загружены, инициализация приложения...');
+    initApplication();
+}
+
+async function initApplication() {
+    console.log('Инициализация приложения...');
+    
+    try {
+        // Создаем экземпляры основных классов
+        console.log('Создание DataManager...');
+        const dataManager = new DataManager();
+        
+        console.log('Создание MapCore...');
+        const mapCore = new MapCore();
+        
+        // ИНИЦИАЛИЗИРУЕМ КАРТУ ПЕРЕД СОЗДАНИЕМ РЕДАКТОРОВ
+        console.log('Инициализация карты...');
         try {
-            // Инициализируем менеджер данных
-            this.dataManager = new DataManager();
-            console.log('DataManager инициализирован');
+            // Получаем сохраненный путь к изображению
+            const savedImagePath = dataManager.getImagePath ? dataManager.getImagePath() : 'img/plan.png';
+            console.log('Загружен путь к изображению из данных:', savedImagePath);
             
             // Инициализируем карту
-            this.mapCore = new MapCore();
-            
-            // Инициализируем карту через промис
-            this.mapCore.init('map', 'img/plan.png')
-                .then((mapSuccess) => {
-                    if (!mapSuccess) {
-                        throw new Error('Не удалось инициализировать карту');
-                    }
+            await mapCore.init('map', savedImagePath);
+            console.log('Карта успешно инициализирована');
+        } catch (mapError) {
+            console.error('Ошибка инициализации карты:', mapError);
+            // Создаем пустую карту для разработки
+            console.log('Создание резервной карты...');
+            mapCore.map = L.map('map', {
+                crs: L.CRS.Simple,
+                minZoom: -2,
+                maxZoom: 2
+            });
+            mapCore.map.setView([0, 0], 0);
+            console.log('Резервная карта создана');
+        }
+        
+        console.log('Создание PolygonsEditor...');
+        const polygonsEditor = new PolygonsEditor(mapCore, dataManager);
+        
+        console.log('Создание RoutingEditor...');
+        const routingEditor = new RoutingEditor(mapCore, dataManager);
+        
+        // ===== НОВЫЙ КОД: Создание импортера =====
+        console.log('Создание MapImporter...');
+        const mapImporter = new MapImporter(dataManager, mapCore);
+        
+        // Сохраняем глобальные ссылки
+        window.app = {
+            dataManager: dataManager,
+            mapCore: mapCore,
+            polygonsEditor: polygonsEditor,
+            routingEditor: routingEditor,
+            mapImporter: mapImporter  // Добавляем импортер
+        };
+        
+        // Данные уже загружены в конструкторе DataManager
+        console.log('Данные уже загружены конструктором DataManager');
+        
+        // Инициализируем UI
+        initUI(dataManager, mapCore, polygonsEditor, routingEditor);
+        
+        // Обновляем статистику
+        updateStats(dataManager);
+        
+        // Отображаем загруженные объекты
+        displayLoadedObjects(dataManager, mapCore, polygonsEditor, routingEditor);
+        
+        console.log('Редактор карты успешно загружен!');
+        showNotification('Редактор загружен. Готов к работе.', 'success');
+        updateStatus('Готов к работе');
+        
+    } catch (error) {
+        console.error('Ошибка инициализации приложения:', error);
+        showNotification('Ошибка инициализации: ' + error.message, 'error');
+    }
+}
 
-                    console.log('Карта успешно инициализирована');
+function initUI(dataManager, mapCore, polygonsEditor, routingEditor) {
+    console.log('Инициализация UI...');
+    
+    // Инициализация вкладок
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+    
+    tabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            tabs.forEach(t => t.classList.remove('active'));
+            tabContents.forEach(c => c.classList.remove('active'));
+            
+            this.classList.add('active');
+            const tabId = this.getAttribute('data-tab');
+            const tabContent = document.getElementById(tabId + '-tab');
+            if (tabContent) tabContent.classList.add('active');
+        });
+    });
+    
+    // Инициализация панели кабинетов
+    initRoomsUI(dataManager, polygonsEditor);
+    
+    // Инициализация панели маршрутов
+    initRoutesUI(dataManager, routingEditor);
+    
+    // Инициализация панели экспорта
+    initExportUI(dataManager, mapCore);
+    
+    // Координаты на карте
+    if (mapCore && mapCore.map) {
+        mapCore.map.on('mousemove', function(e) {
+            const coordsDisplay = document.getElementById('coords-display');
+            if (coordsDisplay) {
+                coordsDisplay.textContent = `Координаты: y=${e.latlng.lat.toFixed(1)}, x=${e.latlng.lng.toFixed(1)}`;
+            }
+        });
+    }
+    
+    console.log('UI инициализирован');
+}
+
+function initRoomsUI(dataManager, polygonsEditor) {
+    console.log('Инициализация UI кабинетов...');
+    
+    const drawBtn = document.getElementById('draw-polygon-btn');
+    if (drawBtn) {
+        drawBtn.addEventListener('click', function() {
+            console.log('Кнопка рисования полигона нажата');
+            if (polygonsEditor && polygonsEditor.startDrawing) {
+                polygonsEditor.startDrawing();
+            }
+        });
+    }
+    
+    const saveBtn = document.getElementById('save-room-btn');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', function() {
+            console.log('Кнопка сохранения нажата');
+            if (polygonsEditor && polygonsEditor.savePolygon) {
+                polygonsEditor.savePolygon();
+            }
+        });
+    }
+    
+    const resetBtn = document.getElementById('reset-rooms-btn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', function() {
+            console.log('Кнопка сброса нажата');
+            if (polygonsEditor && polygonsEditor.resetAllPolygons) {
+                polygonsEditor.resetAllPolygons();
+            }
+        });
+    }
+    
+    console.log('UI кабинетов инициализирован');
+}
+
+function initRoutesUI(dataManager, routingEditor) {
+    console.log('Инициализация UI маршрутов...');
+    
+    const createPointBtn = document.getElementById('create-point-btn');
+    if (createPointBtn) {
+        createPointBtn.addEventListener('click', function() {
+            console.log('Кнопка создания точки нажата');
+            const name = document.getElementById('point-name-input').value;
+            if (routingEditor && routingEditor.startPointCreation) {
+                routingEditor.startPointCreation({
+                    name: name,
+                    type: document.getElementById('point-type-select').value,
+                    useInRouting: document.getElementById('point-routing-checkbox').checked
+                });
+            }
+        });
+    }
+    
+    console.log('UI маршрутов инициализирован');
+}
+
+function initExportUI(dataManager, mapCore) {
+    console.log('Инициализация UI экспорта...');
+    
+    // Инициализация загрузчика изображений
+    initImageLoader(mapCore, dataManager);
+    
+    // Обработчик экспорта веб-интерфейса
+    const exportBtn = document.getElementById('export-web-btn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', function() {
+            if (typeof WebExporter !== 'undefined') {
+                const exporter = new WebExporter(dataManager);
+                const options = {
+                    title: document.getElementById('webmap-title').value,
+                    description: document.getElementById('webmap-description').value,
+                    theme: document.getElementById('webmap-theme').value
+                };
+                exporter.exportWebInterface(options);
+            }
+        });
+    }
+    
+    // Обработчик для мобильного экспорта
+    const exportMobileBtn = document.getElementById('export-mobile-btn');
+    if (exportMobileBtn) {
+        exportMobileBtn.addEventListener('click', function() {
+            if (typeof MobileExporter !== 'undefined') {
+                const exporter = new MobileExporter(dataManager);
+                const options = {
+                    title: document.getElementById('webmap-title').value || 'Мобильная карта офиса',
+                    description: document.getElementById('webmap-description').value || 'Навигация по офису на мобильных устройствах'
+                };
+                const success = exporter.exportMobileInterface(options);
+                
+                if (success) {
+                    showNotification('Мобильная версия успешно экспортирована!', 'success');
+                } else {
+                    showNotification('Ошибка при экспорте мобильной версии', 'error');
+                }
+            } else {
+                showNotification('MobileExporter не загружен', 'error');
+            }
+        });
+    }
+    
+    // Функция предпросмотра веб-интерфейса (исправленная)
+	const previewBtn = document.getElementById('preview-web-btn');
+	if (previewBtn) {
+		previewBtn.addEventListener('click', function() {
+			console.log('Предпросмотр веб-интерфейса');
+			
+			if (typeof WebExporter === 'undefined') {
+				alert('Ошибка: WebExporter не загружен');
+				return;
+			}
+			
+			try {
+				// Создаем временный экспортер
+				const exporter = new WebExporter(dataManager);
+				const options = {
+					title: document.getElementById('webmap-title')?.value || 'Интерактивная карта офиса',
+					description: document.getElementById('webmap-description')?.value || '',
+					theme: document.getElementById('webmap-theme')?.value || 'light'
+				};
+				
+				// Генерируем HTML
+				let html;
+				if (typeof exporter.generateWebHTML === 'function') {
+					html = exporter.generateWebHTML(options);
+				} else if (typeof exporter.generateHTML === 'function') {
+					html = exporter.generateHTML(options);
+				} else {
+					console.warn('Метод generateHTML не найден, используем exportWebInterface');
+					
+					// Получаем Blob из exportWebInterface
+					const blob = exporter.exportWebInterface(options);
+					if (blob instanceof Blob) {
+						const url = URL.createObjectURL(blob);
+						
+						// ИСПРАВЛЕНИЕ: Создаем iframe для безопасной загрузки
+						const previewWindow = window.open('about:blank', '_blank');
+						if (previewWindow) {
+							previewWindow.document.write(`
+								<!DOCTYPE html>
+								<html>
+								<head>
+									<title>Загрузка карты...</title>
+									<style>
+										body { 
+											margin: 0; 
+											padding: 20px; 
+											font-family: sans-serif;
+											background: #f5f5f5;
+											display: flex;
+											align-items: center;
+											justify-content: center;
+											height: 100vh;
+										}
+										.loader {
+											text-align: center;
+											color: #666;
+										}
+										.spinner {
+											border: 4px solid #f3f3f3;
+											border-top: 4px solid #3498db;
+											border-radius: 50%;
+											width: 40px;
+											height: 40px;
+											animation: spin 1s linear infinite;
+											margin: 20px auto;
+										}
+										@keyframes spin {
+											0% { transform: rotate(0deg); }
+											100% { transform: rotate(360deg); }
+										}
+									</style>
+								</head>
+								<body>
+									<div class="loader">
+										<div class="spinner"></div>
+										<p>Загрузка интерактивной карты...</p>
+									</div>
+									<script>
+										// Загружаем сгенерированный HTML через fetch
+										fetch('${url}')
+											.then(response => response.text())
+											.then(html => {
+												document.open();
+												document.write(html);
+												document.close();
+												URL.revokeObjectURL('${url}');
+											})
+											.catch(error => {
+												document.body.innerHTML = '<h1>Ошибка загрузки</h1><p>' + error + '</p>';
+											});
+									<\/script>
+								</body>
+								</html>
+							`);
+							previewWindow.document.close();
+						}
+						
+						return;
+					} else {
+						alert('Метод предпросмотра не поддерживается');
+						return;
+					}
+				}
+				
+				// ИСПРАВЛЕНИЕ: Используем blob URL для безопасной загрузки
+				const blob = new Blob([html], { type: 'text/html' });
+				const url = URL.createObjectURL(blob);
+				
+				// Открываем в новом окне через временный iframe
+				const previewWindow = window.open('about:blank', '_blank');
+				if (previewWindow) {
+					previewWindow.document.write(`
+						<!DOCTYPE html>
+						<html>
+						<head>
+							<title>Загрузка карты...</title>
+							<style>
+								body { 
+									margin: 0; 
+									padding: 20px; 
+									font-family: sans-serif;
+									background: #f5f5f5;
+									display: flex;
+									align-items: center;
+									justify-content: center;
+									height: 100vh;
+								}
+								.loader {
+									text-align: center;
+									color: #666;
+								}
+								.spinner {
+									border: 4px solid #f3f3f3;
+									border-top: 4px solid #3498db;
+									border-radius: 50%;
+									width: 40px;
+									height: 40px;
+									animation: spin 1s linear infinite;
+									margin: 20px auto;
+								}
+								@keyframes spin {
+									0% { transform: rotate(0deg); }
+									100% { transform: rotate(360deg); }
+								}
+							</style>
+						</head>
+						<body>
+							<div class="loader">
+								<div class="spinner"></div>
+								<p>Загрузка интерактивной карты...</p>
+							</div>
+							<script>
+								// Перенаправляем на blob URL
+								window.location.href = '${url}';
+							<\/script>
+						</body>
+						</html>
+					`);
+					previewWindow.document.close();
+				}
+				
+				// Очищаем URL через некоторое время
+				setTimeout(() => {
+					URL.revokeObjectURL(url);
+				}, 10000);
+				
+				showNotification('Предпросмотр открыт в новом окне', 'success');
+				
+			} catch (error) {
+				console.error('Ошибка предпросмотра:', error);
+				alert('Ошибка при создании предпросмотра: ' + error.message);
+			}
+		});
+		console.log('✓ Исправленный обработчик предпросмотра добавлен');
+	}
+    
+    // ===== НОВЫЙ КОД: Кнопка тестирования маршрута =====
+    const testRouteBtn = document.getElementById('test-route-btn');
+    if (testRouteBtn) {
+        testRouteBtn.addEventListener('click', function() {
+            console.log('Тестирование случайного маршрута');
+            
+            const routingEditor = window.app?.routingEditor;
+            if (!routingEditor) {
+                alert('Ошибка: редактор маршрутов не найден');
+                return;
+            }
+            
+            try {
+                // Получаем все точки для маршрутизации
+                const routingPoints = dataManager.getRoutingPoints();
+                
+                if (routingPoints.length < 2) {
+                    alert('Недостаточно точек для тестирования маршрута (нужно минимум 2)');
+                    return;
+                }
+                
+                // Выбираем две случайные разные точки
+                let startIndex = Math.floor(Math.random() * routingPoints.length);
+                let endIndex;
+                do {
+                    endIndex = Math.floor(Math.random() * routingPoints.length);
+                } while (endIndex === startIndex);
+                
+                const startPoint = routingPoints[startIndex];
+                const endPoint = routingPoints[endIndex];
+                
+                console.log('Тестируем маршрут:', startPoint.name, '->', endPoint.name);
+                
+                // Устанавливаем значения в селекты
+                const startSelect = document.getElementById('test-start-select');
+                const endSelect = document.getElementById('test-end-select');
+                
+                if (startSelect && endSelect) {
+                    startSelect.value = startPoint.id;
+                    endSelect.value = endPoint.id;
                     
-                    // Проверяем, есть ли файлы редакторов
-                    if (typeof PolygonsEditor !== 'undefined') {
-                        this.roomsEditor = new PolygonsEditor(this.mapCore, this.dataManager);
-                        console.log('PolygonsEditor инициализирован');
-                    } else {
-                        console.warn('PolygonsEditor не найден');
+                    // Обновляем кнопку поиска
+                    if (routingEditor.updateFindRouteButton) {
+                        routingEditor.updateFindRouteButton();
                     }
                     
-                    // Инициализируем редактор маршрутов
-                    if (typeof RoutingEditor !== 'undefined') {
-                        this.routingEditor = new RoutingEditor(this.mapCore, this.dataManager);
-                        console.log('RoutingEditor инициализирован');
+                    // Запускаем поиск маршрута
+                    if (routingEditor.testRoute) {
+                        routingEditor.testRoute();
+                    } else {
+                        // Если нет testRoute, используем альтернативный метод
+                        console.warn('Метод testRoute не найден, ищем альтернативы');
                         
-                        // Отладочная информация
-                        console.log('Методы RoutingEditor:', Object.getOwnPropertyNames(Object.getPrototypeOf(this.routingEditor)));
-                    } else {
-                        console.warn('RoutingEditor не найден');
+                        // Пробуем найти путь напрямую
+                        if (routingEditor.findPathBFS) {
+                            const result = routingEditor.findPathBFS(startPoint.id, endPoint.id);
+                            if (result && result.success) {
+                                if (routingEditor.showRoute) {
+                                    routingEditor.showRoute(result.path);
+                                }
+                                if (routingEditor.showRouteInfo) {
+                                    routingEditor.showRouteInfo(result);
+                                } else {
+                                    alert(`Маршрут найден! Длина: ${result.length.toFixed(1)} ед.`);
+                                }
+                            } else {
+                                alert('Путь не найден между выбранными точками');
+                            }
+                        } else {
+                            alert('Функция поиска маршрута не доступна');
+                        }
                     }
                     
-                    // Инициализируем экспортер
-                    if (typeof WebExporter !== 'undefined') {
-                        this.webExporter = new WebExporter(this.dataManager);
-                        console.log('WebExporter инициализирован');
-                    } else {
-                        console.warn('WebExporter не найден');
-                    }
-                    
-                    // Загружаем объекты на карту
-                    this.loadObjectsToMap();
-                    
-                    // Инициализируем вкладки
-                    this.initTabs();
-                    
-                    // Инициализируем экспорт
-                    this.initExport();
-                    
-                    // Обновляем статистику
-                    this.updateStats();
-                    
-                    // Устанавливаем автосохранение
-                    this.setupAutoSave();
-                    
-                    // Обновляем статус
-                    this.updateStatus('Система загружена и готова к работе');
-                    
-                    console.log('=== СИСТЕМА УСПЕШНО ИНИЦИАЛИЗИРОВАНА ===');
-                    
-                })
-                .catch((error) => {
-                    console.error('Ошибка инициализации карты:', error);
-                    
-                    // Показываем подробную ошибку
-                    let errorMessage = 'Ошибка загрузки карты. Проверьте:';
-                    errorMessage += '\n1. Файл img/plan.png существует в папке img/';
-                    errorMessage += '\n2. Файл доступен для чтения';
-                    errorMessage += '\n3. Консоль для подробной информации';
-                    
-                    Utils.showNotification(errorMessage, 'error');
-                    
-                    // Показываем сообщение в интерфейсе
-                    this.updateStatus('Ошибка загрузки карты. Проверьте консоль.');
-                    
-                    // Создаем тестовое изображение если файл не найден
-                    if (error.message.includes('plan.png') || error.message.includes('404')) {
-                        console.log('Попытка создать тестовое изображение...');
-                        this.createTestBackground();
-                    }
-                });
-            
-        } catch (error) {
-            console.error('Критическая ошибка инициализации:', error);
-            Utils.showNotification('Критическая ошибка инициализации системы: ' + error.message, 'error');
-        }
-    }
-
-    /**
-     * Создание тестового фона если изображение не найдено
-     */
-    createTestBackground() {
-        try {
-            // Создаем простую подложку для тестирования
-            const canvas = document.createElement('canvas');
-            canvas.width = 1920;
-            canvas.height = 1080;
-            const ctx = canvas.getContext('2d');
-            
-            // Заполняем фон
-            ctx.fillStyle = '#f0f0f0';
-            ctx.fillRect(0, 0, 1920, 1080);
-            
-            // Добавляем сетку
-            ctx.strokeStyle = '#d0d0d0';
-            ctx.lineWidth = 1;
-            
-            // Вертикальные линии
-            for (let x = 0; x <= 1920; x += 100) {
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, 1080);
-                ctx.stroke();
-            }
-            
-            // Горизонтальные линии
-            for (let y = 0; y <= 1080; y += 100) {
-                ctx.beginPath();
-                ctx.moveTo(0, y);
-                ctx.lineTo(1920, y);
-                ctx.stroke();
-            }
-            
-            // Добавляем текст
-            ctx.fillStyle = '#3498db';
-            ctx.font = 'bold 48px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('ОФИСНЫЙ ПЛАН', 960, 200);
-            
-            ctx.fillStyle = '#666';
-            ctx.font = '24px Arial';
-            ctx.fillText('Тестовая подложка (1920x1080)', 960, 250);
-            ctx.fillText('Добавьте файл img/plan.png для использования реального плана', 960, 300);
-            
-            // Добавляем координаты
-            ctx.fillStyle = '#888';
-            ctx.font = '16px Arial';
-            ctx.textAlign = 'left';
-            ctx.fillText('Y: 0-1080', 50, 100);
-            ctx.fillText('X: 0-1920', 50, 130);
-            
-            // Конвертируем в data URL
-            const dataURL = canvas.toDataURL('image/png');
-            
-            // Обновляем изображение на карте
-            if (this.mapCore && this.mapCore.imageOverlay) {
-                this.mapCore.imageOverlay.setUrl(dataURL);
-                Utils.showNotification('Создана тестовая подложка. Добавьте img/plan.png для реального плана.', 'warning');
-            }
-            
-        } catch (error) {
-            console.error('Ошибка создания тестового фона:', error);
-        }
-    }
-
-    /**
-     * Загрузка объектов на карту
-     */
-    loadObjectsToMap() {
-        const data = this.dataManager.getData();
-        console.log('Загрузка объектов на карту:', {
-            rooms: data.rooms ? data.rooms.length : 0,
-            points: data.points ? data.points.length : 0,
-            routes: data.routes ? data.routes.length : 0,
-            routePoints: data.routePoints ? data.routePoints.length : 0
-        });
-        
-        // Загрузка выполняется каждым редактором отдельно при их инициализации
-    }
-
-    /**
-     * Инициализация вкладок
-     */
-    initTabs() {
-        const tabs = document.querySelectorAll('.tab');
-        tabs.forEach((tab) => {
-            tab.addEventListener('click', () => {
-                const tabName = tab.dataset.tab;
-                
-                // Убираем активный класс у всех вкладок
-                tabs.forEach((t) => {
-                    t.classList.remove('active');
-                });
-                
-                document.querySelectorAll('.tab-content').forEach((content) => {
-                    content.classList.remove('active');
-                });
-
-                // Добавляем активный класс выбранной вкладке
-                tab.classList.add('active');
-                const tabContent = document.getElementById(tabName + '-tab');
-                if (tabContent) {
-                    tabContent.classList.add('active');
+                    showNotification(`Тестирование маршрута: ${startPoint.name} → ${endPoint.name}`, 'info');
                 }
                 
-                // Сбрасываем режим рисования при переключении вкладок
-                if (this.mapCore) {
-                    this.mapCore.resetDrawingMode();
-                }
-                
-                // Специальные действия для вкладок
-                if (tabName === 'routes' && this.routingEditor) {
-                    // Обновляем селекты при переходе на вкладку маршрутов
-                    this.updateRoutingUI();
-                } else if (tabName === 'export' && this.webExporter) {
-                    this.updateStats();
-                }
-                
-                this.updateStatus('Вкладка: ' + tab.textContent.trim());
-            });
+            } catch (error) {
+                console.error('Ошибка тестирования:', error);
+                alert('Ошибка при тестировании маршрута: ' + error.message);
+            }
+        });
+        console.log('✓ Обработчик тестирования добавлен в main.js');
+    }
+    
+    console.log('UI экспорта инициализирован');
+}
+
+// Функция инициализации загрузчика изображений
+function initImageLoader(mapCore, dataManager) {
+    console.log('Инициализация загрузчика изображений...');
+    
+    // Обновляем отображение текущего пути
+    updateCurrentPlanPath(mapCore);
+    
+    // Обработчик кнопки обновления карты
+    const refreshBtn = document.getElementById('refresh-map-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            refreshMapImage(mapCore, dataManager);
         });
     }
-
-    /**
-     * Обновление UI маршрутизации
-     */
-    updateRoutingUI() {
-        try {
-            // Обновляем селект кабинетов
-            if (this.routingEditor && typeof this.routingEditor.updateRoomSelect === 'function') {
-                this.routingEditor.updateRoomSelect();
-            } else {
-                // Альтернативный способ обновления селекта
-                this.updateRoomSelectManually();
+    
+    // Обработчик загрузки файла
+    const fileInput = document.getElementById('plan-image-upload');
+    if (fileInput) {
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            // Проверяем тип файла
+            if (!file.type.startsWith('image/')) {
+                showNotification('Пожалуйста, выберите файл изображения', 'error');
+                return;
             }
             
-            // Обновляем тестовые селекты
-            if (this.routingEditor && typeof this.routingEditor.updateTestSelects === 'function') {
-                this.routingEditor.updateTestSelects();
+            // Создаем URL для загруженного файла
+            const imageUrl = URL.createObjectURL(file);
+            
+            // Обновляем поле пути
+            const pathInput = document.getElementById('plan-image-path');
+            if (pathInput) {
+                pathInput.value = imageUrl;
             }
-        } catch (error) {
-            console.warn('Ошибка обновления UI маршрутизации:', error);
-        }
-    }
-
-    /**
-     * Ручное обновление селекта кабинетов
-     */
-    updateRoomSelectManually() {
-        const roomSelect = document.getElementById('room-select');
-        if (!roomSelect) return;
-        
-        roomSelect.innerHTML = '<option value="">Выберите кабинет</option>';
-        
-        const rooms = this.dataManager.getAllPolygons();
-        rooms.forEach(room => {
-            const option = document.createElement('option');
-            option.value = room.id;
-            option.textContent = room.name;
-            roomSelect.appendChild(option);
+            
+            // Меняем изображение на карте
+            changeMapImage(mapCore, dataManager, imageUrl);
         });
-        
-        console.log('Селект кабинетов обновлен вручную:', rooms.length, 'кабинетов');
     }
-
-    /**
-     * Инициализация экспорта
-     */
-    initExport() {
-        console.log('Инициализация модуля экспорта...');
-        
-        // Кнопка экспорта веб-интерфейса
-        const exportWebBtn = document.getElementById('export-web-btn');
-        if (exportWebBtn) {
-            exportWebBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                this.exportWebInterface();
-            });
-        }
-        
-        // Кнопка предпросмотра
-        const previewWebBtn = document.getElementById('preview-web-btn');
-        if (previewWebBtn) {
-            previewWebBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                this.previewWebInterface();
-            });
-        }
-        
-        // Кнопка тестирования маршрута
-        const testRouteBtn = document.getElementById('test-route-btn');
-        if (testRouteBtn) {
-            testRouteBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                this.testRandomRoute();
-            });
-        }
+    
+    // Обработчик кнопки смены изображения по пути
+    const changeBtn = document.getElementById('change-plan-btn');
+    if (changeBtn) {
+        changeBtn.addEventListener('click', function() {
+            const pathInput = document.getElementById('plan-image-path');
+            if (!pathInput) return;
+            
+            const imagePath = pathInput.value.trim();
+            if (!imagePath) {
+                showNotification('Укажите путь к изображению', 'warning');
+                return;
+            }
+            
+            changeMapImage(mapCore, dataManager, imagePath);
+        });
     }
+    
+    // Обработчик Enter в поле пути
+    const pathInput = document.getElementById('plan-image-path');
+    if (pathInput) {
+        pathInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const imagePath = this.value.trim();
+                if (imagePath) {
+                    changeMapImage(mapCore, dataManager, imagePath);
+                }
+            }
+        });
+    }
+}
 
-    /**
-     * Экспорт веб-интерфейса
-     */
-    exportWebInterface() {
-        if (!this.webExporter) {
-            Utils.showNotification('Экспортер не инициализирован', 'error');
-            return;
+// Функция принудительного обновления изображения
+function refreshMapImage(mapCore, dataManager) {
+    if (!mapCore || !mapCore.map) {
+        showNotification('Карта не инициализирована', 'error');
+        return;
+    }
+    
+    const currentPath = mapCore.currentImagePath || 'img/plan.png';
+    
+    console.log('Принудительное обновление изображения:', currentPath);
+    showNotification('Обновление изображения...', 'info');
+    
+    // Генерируем уникальный параметр для обхода кеша
+    const cacheBuster = '?refresh=' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+    const newUrl = currentPath + cacheBuster;
+    
+    try {
+        // Сохраняем текущий зум и центр
+        const center = mapCore.map.getCenter();
+        const zoom = mapCore.map.getZoom();
+        
+        // Удаляем старое изображение
+        if (mapCore.imageOverlay) {
+            mapCore.map.removeLayer(mapCore.imageOverlay);
         }
         
-        // Получаем текущие данные
-        const data = this.dataManager.getData();
+        // Создаем новое изображение
+        mapCore.imageOverlay = L.imageOverlay(newUrl, mapCore.imageBounds, {
+            opacity: 1
+        }).addTo(mapCore.map);
         
-        // Получаем настройки из формы
-        const options = {
-            title: document.getElementById('webmap-title') ? document.getElementById('webmap-title').value : 'Карта офиса',
-            description: document.getElementById('webmap-description') ? document.getElementById('webmap-description').value : 'Интерактивная карта офиса',
-            theme: document.getElementById('webmap-theme') ? document.getElementById('webmap-theme').value : 'light',
-            features: {
-                search: document.getElementById('feature-search') ? document.getElementById('feature-search').checked !== false : true,
-                routing: document.getElementById('feature-routing') ? document.getElementById('feature-routing').checked !== false : true,
-                mobile: document.getElementById('feature-mobile') ? document.getElementById('feature-mobile').checked !== false : true
-            },
-            data: data,
-            filename: 'office_map.html'
-        };
+        // Восстанавливаем позицию карты
+        mapCore.map.setView(center, zoom);
         
-        console.log('Экспорт веб-интерфейса с настройки:', options);
+        // Сохраняем путь в данных (без параметра)
+        if (dataManager && dataManager.saveImagePath) {
+            dataManager.saveImagePath(currentPath);
+        }
         
+        // Обновляем отображение пути
+        updateCurrentPlanPath(mapCore);
+        
+        showNotification('Изображение обновлено!', 'success');
+        console.log('✅ Изображение успешно обновлено');
+        
+    } catch (error) {
+        console.error('Ошибка при обновлении изображения:', error);
+        showNotification('Ошибка при обновлении изображения', 'error');
+    }
+}
+
+// Функция смены изображения на карте
+function changeMapImage(mapCore, dataManager, imagePath) {
+    if (!mapCore || !mapCore.map) {
+        showNotification('Карта не инициализирована', 'error');
+        return;
+    }
+    
+    // Показываем индикатор загрузки
+    showNotification('Загрузка изображения...', 'info');
+    
+    // Генерируем уникальный параметр для обхода кеша
+    const cacheBuster = '?v=' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+    const imageUrl = imagePath + cacheBuster;
+    
+    // Проверяем существование файла через создание временного Image объекта
+    const img = new Image();
+    img.onload = function() {
         try {
-            const success = this.webExporter.exportWebInterface(options);
-            if (success) {
-                Utils.showNotification('Веб-интерфейс успешно экспортирован! Файл office_map.html загружен', 'success');
+            // Сохраняем текущий зум и центр
+            const center = mapCore.map.getCenter();
+            const zoom = mapCore.map.getZoom();
+            
+            // Удаляем старое изображение
+            if (mapCore.imageOverlay) {
+                mapCore.map.removeLayer(mapCore.imageOverlay);
             }
+            
+            // Добавляем новое изображение
+            mapCore.imageOverlay = L.imageOverlay(imageUrl, mapCore.imageBounds, {
+                opacity: 1
+            }).addTo(mapCore.map);
+            
+            // Восстанавливаем позицию карты
+            mapCore.map.setView(center, zoom);
+            
+            // Сохраняем новый путь (без параметра)
+            mapCore.currentImagePath = imagePath;
+            if (dataManager && dataManager.saveImagePath) {
+                dataManager.saveImagePath(imagePath);
+            }
+            
+            // Обновляем отображение текущего пути
+            updateCurrentPlanPath(mapCore);
+            
+            // Очищаем input file
+            const fileInput = document.getElementById('plan-image-upload');
+            if (fileInput) fileInput.value = '';
+            
+            showNotification('Изображение успешно обновлено', 'success');
+            
         } catch (error) {
-            console.error('Ошибка экспорта:', error);
-            Utils.showNotification('Ошибка экспорта: ' + error.message, 'error');
+            console.error('Ошибка при смене изображения:', error);
+            showNotification('Ошибка при обновлении изображения', 'error');
         }
-    }
+    };
+    
+    img.onerror = function() {
+        console.error('Ошибка загрузки изображения:', imagePath);
+        showNotification('Не удалось загрузить изображение: ' + imagePath, 'error');
+    };
+    
+    img.src = imageUrl;
+}
 
-    /**
-     * Предпросмотр веб-интерфейса
-     */
-    previewWebInterface() {
-        if (!this.webExporter) {
-            Utils.showNotification('Экспортер не инициализирован', 'error');
-            return;
-        }
-        
-        // Получаем текущие данные
-        const data = this.dataManager.getData();
-        
-        // Получаем настройки из формы
-        const options = {
-            title: document.getElementById('webmap-title') ? document.getElementById('webmap-title').value : 'Карта офиса',
-            description: document.getElementById('webmap-description') ? document.getElementById('webmap-description').value : 'Интерактивная карта офиса',
-            theme: document.getElementById('webmap-theme') ? document.getElementById('webmap-theme').value : 'light',
-            features: {
-                search: document.getElementById('feature-search') ? document.getElementById('feature-search').checked !== false : true,
-                routing: document.getElementById('feature-routing') ? document.getElementById('feature-routing').checked !== false : true,
-                mobile: document.getElementById('feature-mobile') ? document.getElementById('feature-mobile').checked !== false : true
-            },
-            data: data
-        };
-        
-        try {
-            const success = this.webExporter.previewWebInterface(options);
-            if (success) {
-                Utils.showNotification('Предпросмотр открыт в новом окне', 'info');
-            }
-        } catch (error) {
-            console.error('Ошибка предпросмотра:', error);
-            Utils.showNotification('Ошибка при открытии предпросмотра', 'error');
-        }
+// Функция обновления отображения текущего пути изображения
+function updateCurrentPlanPath(mapCore) {
+    const pathSpan = document.getElementById('current-plan-path');
+    if (!pathSpan) return;
+    
+    let currentPath = 'img/plan.png';
+    if (mapCore && mapCore.currentImagePath) {
+        currentPath = mapCore.currentImagePath;
     }
-
-    /**
-     * Тестирование случайного маршрута
-     */
-    testRandomRoute() {
-        if (!this.routingEditor || !this.routingEditor.routingGraph) {
-            Utils.showNotification('Редактор маршрутов не инициализирован', 'error');
-            return;
-        }
-        
-        const graph = this.routingEditor.routingGraph;
-        const nodes = Array.from(graph.nodes.values()).filter(node => node.metadata?.isRoutingPoint !== false);
-        
-        if (nodes.length < 2) {
-            Utils.showNotification('Нужно хотя бы 2 точки маршрутизации для теста', 'warning');
-            return;
-        }
-        
-        // Выбираем случайные точки
-        const startNode = nodes[Math.floor(Math.random() * nodes.length)];
-        let endNode;
-        do {
-            endNode = nodes[Math.floor(Math.random() * nodes.length)];
-        } while (endNode.id === startNode.id);
-        
-        // Ищем путь
-        const result = graph.findShortestPath(startNode.id, endNode.id);
-        
-        // Показываем результат
-        const testResultDiv = document.getElementById('test-result');
-        if (testResultDiv) {
-            if (result.success) {
-                testResultDiv.innerHTML = `
-                    <h4 style="margin-top: 0; color: #2ecc71;">✅ Тест пройден успешно!</h4>
-                    <p><strong>Маршрут:</strong> ${Utils.escapeHtml(startNode.name)} → ${Utils.escapeHtml(endNode.name)}</p>
-                    <p><strong>Длина:</strong> ${result.length.toFixed(1)} ед.</p>
-                    <p><strong>Точек в пути:</strong> ${result.nodes.length}</p>
-                    <p><strong>Время поиска:</strong> ${result.searchTime.toFixed(1)} мс</p>
-                    <p style="margin-top: 10px; font-size: 0.9em; color: #666;">
-                        <i class="fas fa-info-circle"></i> Алгоритм работает корректно
-                    </p>
-                `;
-            } else {
-                testResultDiv.innerHTML = `
-                    <h4 style="margin-top: 0; color: #e74c3c;">❌ Тест не пройден</h4>
-                    <p><strong>Маршрут:</strong> ${Utils.escapeHtml(startNode.name)} → ${Utils.escapeHtml(endNode.name)}</p>
-                    <p><strong>Причина:</strong> ${result.message || 'Путь не найден'}</p>
-                    <p style="margin-top: 10px; font-size: 0.9em; color: #666;">
-                        <i class="fas fa-info-circle"></i> Возможно, точки не соединены
-                    </p>
-                `;
-            }
-            testResultDiv.style.display = 'block';
-        }
-        
-        // Визуализируем путь если найден
-        if (result.success && this.routingEditor.routingVisual) {
-            this.routingEditor.routingVisual.drawPath(result);
-        }
-        
-        Utils.showNotification(`Тест маршрута: ${startNode.name} → ${endNode.name}`, 
-                              result.success ? 'success' : 'warning');
+    
+    pathSpan.textContent = currentPath;
+    
+    // Обновляем поле ввода, если оно есть
+    const pathInput = document.getElementById('plan-image-path');
+    if (pathInput && pathInput.value !== currentPath) {
+        pathInput.value = currentPath;
     }
+}
 
-    /**
-     * Обновление статистики
-     */
-    updateStats() {
-        if (!this.dataManager) return;
+function displayLoadedObjects(dataManager, mapCore, polygonsEditor, routingEditor) {
+    console.log('Отображение загруженных объектов...');
+    
+    // Загружаем кабинеты на карту через polygonsEditor
+    if (polygonsEditor && polygonsEditor.loadPolygonsToMap) {
+        polygonsEditor.loadPolygonsToMap();
+    }
+    
+    // Загружаем точки и соединения через routingEditor
+    if (routingEditor && routingEditor.updatePointsDisplay && routingEditor.updateConnectionsDisplay) {
+        routingEditor.updatePointsDisplay();
+        routingEditor.updateConnectionsDisplay();
+    }
+    
+    console.log('Объекты загружены на карту');
+}
+
+function updateStats(dataManager) {
+    console.log('Обновление статистики...');
+    
+    try {
+        // Получаем данные через правильные методы DataManager
+        const rooms = dataManager.getAllPolygons ? dataManager.getAllPolygons() : [];
+        const points = dataManager.getAllPoints ? dataManager.getAllPoints() : [];
+        const connections = dataManager.getAllConnections ? dataManager.getAllConnections() : [];
         
-        const stats = this.dataManager.getStats();
+        console.log('Статистика:', {
+            rooms: rooms.length,
+            points: points.length,
+            connections: connections.length
+        });
         
         // Обновляем элементы статистики
         const statsRooms = document.getElementById('stats-rooms');
         const statsPoints = document.getElementById('stats-points');
-        const statsRoutes = document.getElementById('stats-connections');
+        const statsConnections = document.getElementById('stats-connections');
         const statsTotal = document.getElementById('stats-total');
         
-        if (statsRooms) statsRooms.textContent = stats.rooms;
-        if (statsPoints) statsPoints.textContent = stats.points;
-        if (statsRoutes) statsRoutes.textContent = stats.routes || 0;
-        if (statsTotal) statsTotal.textContent = stats.total;
+        if (statsRooms) statsRooms.textContent = rooms.length;
+        if (statsPoints) statsPoints.textContent = points.length;
+        if (statsConnections) statsConnections.textContent = connections.length;
+        if (statsTotal) statsTotal.textContent = rooms.length + points.length + connections.length;
         
-        // Дополнительная статистика для редактора маршрутов
-        if (this.routingEditor && this.routingEditor.routingGraph) {
-            const graphStats = this.routingEditor.routingGraph.getStats();
-            if (statsPoints) statsPoints.textContent = graphStats.nodes || stats.points;
-            if (statsRoutes) statsRoutes.textContent = graphStats.edges || stats.routes || 0;
-            if (statsTotal) statsTotal.textContent = (stats.rooms + graphStats.nodes + graphStats.edges) || stats.total;
-        }
-    }
-
-    /**
-     * Настройка автосохранения
-     */
-    setupAutoSave() {
-        // Автосохранение при изменении данных в dataManager
-        const originalSaveData = this.dataManager.saveData.bind(this.dataManager);
-        
-        this.dataManager.saveData = function(...args) {
-            const result = originalSaveData(...args);
-            
-            // Обновляем статистику после сохранения
-            if (window.app) {
-                window.app.updateStats();
-            }
-            
-            return result;
-        };
-        
-        // Автосохранение при закрытии страницы
-        window.addEventListener('beforeunload', (event) => {
-            try {
-                // Быстрое сохранение перед закрытием
-                this.dataManager.saveData();
-            } catch (error) {
-                console.warn('Не удалось сохранить данные перед закрытием:', error);
-            }
-        });
-        
-        // Периодическое автосохранение (каждые 30 секунд)
-        setInterval(() => {
-            if (this.dataManager) {
-                this.dataManager.saveData();
-                console.log('Автосохранение выполнено');
-            }
-        }, 30000);
-    }
-
-    /**
-     * Обновление статуса
-     * @param {string} message - Сообщение статуса
-     */
-    updateStatus(message) {
-        const statusElement = document.getElementById('status');
-        if (statusElement) {
-            statusElement.textContent = message;
-        }
-    }
-
-    /**
-     * Получение экземпляра редактора кабинетов
-     * @returns {PolygonsEditor} Редактор кабинетов
-     */
-    getRoomsEditor() {
-        return this.roomsEditor;
-    }
-
-    /**
-     * Получение экземпляра редактора маршрутов
-     * @returns {RoutingEditor} Редактор маршрутов
-     */
-    getRoutingEditor() {
-        return this.routingEditor;
-    }
-
-    /**
-     * Получение экземпляра экспортера
-     * @returns {WebExporter} Экспортер
-     */
-    getWebExporter() {
-        return this.webExporter;
-    }
-
-    /**
-     * Получение всех данных
-     * @returns {object} Все данные
-     */
-    getAllData() {
-        return this.dataManager ? this.dataManager.getData() : null;
+    } catch (error) {
+        console.error('Ошибка обновления статистики:', error);
     }
 }
 
-/**
- * Отладочная функция для экспорта
- */
-window.debugExport = function() {
-    console.log('=== ОТЛАДОЧНЫЙ ЭКСПОРТ ===');
+function updateStatus(message) {
+    const statusElement = document.getElementById('status');
+    if (statusElement) {
+        statusElement.textContent = message;
+    }
+}
+
+function showNotification(message, type = 'info') {
+    console.log(`${type}: ${message}`);
     
-    if (window.app && window.app.webExporter) {
-        const options = {
-            title: 'Тестовая карта офиса',
-            description: 'Тестовый экспорт для отладки',
-            theme: 'light',
-            features: {
-                search: true,
-                routing: true,
-                mobile: true
-            }
-        };
-        
-        try {
-            const html = window.app.webExporter.generateWebHTML(options);
-            console.log('HTML успешно сгенерирован, размер:', html.length, 'символов');
-            
-            // Сохраняем в файл
-            Utils.downloadFile(html, 'debug_export.html', 'text/html');
-            
-            Utils.showNotification('Отладочный экспорт завершен! Файл debug_export.html загружен', 'success');
-            return true;
-            
-        } catch (error) {
-            console.error('Ошибка отладочного экспорта:', error);
-            Utils.showNotification('Ошибка отладочного экспорта: ' + error.message, 'error');
-            return false;
-        }
+    if (typeof Utils !== 'undefined' && Utils.showNotification) {
+        Utils.showNotification(message, type);
     } else {
-        console.error('Экспортер не доступен. app:', window.app);
-        Utils.showNotification('Экспортер не инициализирован', 'error');
-        return false;
+        // Простая версия
+        alert(message);
     }
-};
+}
 
-/**
- * Отладочная функция для проверки данных
- */
-window.debugData = function() {
-    console.log('=== ОТЛАДОЧНЫЕ ДАННЫЕ ===');
+// Функции для отладки
+window.debugApp = function() {
+    console.log('=== Отладка приложения ===');
+    console.log('1. window.app:', window.app);
+    console.log('2. Загруженные классы:');
     
-    if (window.app && window.app.dataManager) {
-        const data = window.app.getAllData();
-        console.log('Все данные:', data);
-        console.log('Статистика:', window.app.dataManager.getStats());
-        
-        // Сохраняем в localStorage для проверки
-        localStorage.setItem('office_map_debug', JSON.stringify(data, null, 2));
-        console.log('Данные сохранены в localStorage как office_map_debug');
-        
-        return data;
-    } else {
-        console.error('DataManager не доступен');
-        return null;
-    }
-};
-
-/**
- * Вспомогательная функция для тестирования
- */
-window.testSystem = function() {
-    console.log('=== ТЕСТИРОВАНИЕ СИСТЕМЫ ===');
-    
-    // Проверяем наличие всех компонентов
-    const components = {
-        'MapCore': window.app && window.app.mapCore,
-        'DataManager': window.app && window.app.dataManager,
-        'PolygonsEditor': window.app && window.app.roomsEditor,
-        'RoutingEditor': window.app && window.app.routingEditor,
-        'WebExporter': window.app && window.app.webExporter
-    };
-    
-    console.log('Состояние компонентов:');
-    Object.keys(components).forEach(function(name) {
-        console.log('  ' + name + ': ' + (components[name] ? '✓' : '✗'));
-    });
-    
-    // Проверяем данные
-    if (window.app && window.app.dataManager) {
-        const stats = window.app.dataManager.getStats();
-        console.log('Статистика данных:', stats);
-    }
-    
-    return components;
-};
-
-/**
- * Функция для перезагрузки подложки
- */
-window.reloadBackground = function(imagePath) {
-    if (window.app && window.app.mapCore) {
-        const path = imagePath || 'img/plan.png';
-        window.app.mapCore.reloadBackground(path);
-    } else {
-        Utils.showNotification('Карта не инициализирован', 'error');
-    }
-};
-
-/**
- * Функция для проверки изображения
- */
-window.checkImage = function() {
-    const img = new Image();
-    img.onload = function() {
-        console.log('Изображение загружено успешно');
-        console.log('Размеры:', img.width, 'x', img.height);
-        Utils.showNotification('Изображение загружено: ' + img.width + 'x' + img.height, 'success');
-    };
-    img.onerror = function() {
-        console.error('Не удалось загрузить изображение');
-        Utils.showNotification('Ошибка загрузки изображения', 'error');
-    };
-    img.src = 'img/plan.png';
-};
-
-/**
- * Функция для создания тестового изображения
- */
-window.createTestImage = function() {
-    if (window.app && window.app.createTestBackground) {
-        window.app.createTestBackground();
-        Utils.showNotification('Тестовая подложка создана', 'success');
-    }
-};
-
-/**
- * Проверка загрузки всех необходимых файлов
- */
-window.checkFiles = function() {
-    console.log('=== ПРОВЕРКА ФАЙЛОВ ===');
-    
-    const requiredFiles = [
-        'js/core/utils.js',
-        'js/core/map-core.js',
-        'js/core/data-manager.js',
-        'js/editors/polygons.js',
-        'js/editors/routing-graph.js',
-        'js/editors/routing-visual.js',
-        'js/editors/routing-editor.js',
-        'js/export/web-exporter.js',
-        'js/main.js'
+    const classes = [
+        'Utils',
+        'MapCore', 
+        'DataManager',
+        'PolygonsEditor',
+        'RoutingEditor',
+        'WebExporter',
+        'MobileExporter'
     ];
     
-    let allLoaded = true;
-    
-    requiredFiles.forEach(file => {
-        // Проверяем, загружен ли файл по наличию глобальных переменных
-        let isLoaded = false;
-        let error = '';
-        
-        switch(file) {
-            case 'js/core/utils.js':
-                isLoaded = typeof Utils !== 'undefined';
-                if (!isLoaded) error = 'Utils не определен';
-                break;
-            case 'js/core/map-core.js':
-                isLoaded = typeof MapCore !== 'undefined';
-                if (!isLoaded) error = 'MapCore не определен';
-                break;
-            case 'js/core/data-manager.js':
-                isLoaded = typeof DataManager !== 'undefined';
-                if (!isLoaded) error = 'DataManager не определен';
-                break;
-            case 'js/editors/polygons.js':
-                isLoaded = typeof PolygonsEditor !== 'undefined';
-                if (!isLoaded) error = 'PolygonsEditor не определен';
-                break;
-            case 'js/editors/routing-graph.js':
-                isLoaded = typeof RoutingGraph !== 'undefined';
-                if (!isLoaded) error = 'RoutingGraph не определен';
-                break;
-            case 'js/editors/routing-visual.js':
-                isLoaded = typeof RoutingVisual !== 'undefined';
-                if (!isLoaded) error = 'RoutingVisual не определен';
-                break;
-            case 'js/editors/routing-editor.js':
-                isLoaded = typeof RoutingEditor !== 'undefined';
-                if (!isLoaded) error = 'RoutingEditor не определен';
-                break;
-            case 'js/export/web-exporter.js':
-                isLoaded = typeof WebExporter !== 'undefined';
-                if (!isLoaded) error = 'WebExporter не определен';
-                break;
-        }
-        
-        console.log(file + ': ' + (isLoaded ? '✓' : '✗ ' + error));
-        
-        if (!isLoaded) allLoaded = false;
+    classes.forEach(cls => {
+        const loaded = typeof window[cls] !== 'undefined';
+        console.log(`   - ${cls}: ${loaded ? '✓' : '✗'}`);
     });
     
-    console.log('Все файлы загружены: ' + (allLoaded ? 'ДА' : 'НЕТ'));
-    return allLoaded;
-};
-
-// Инициализация приложения при загрузке страницы
-document.addEventListener('DOMContentLoaded', function() {
-    try {
-        window.app = new OfficeMapEditor();
-        console.log('OfficeMapEditor инициализирован как window.app');
+    if (window.app) {
+        console.log('3. Компоненты приложения:');
+        console.log('   - dataManager:', !!window.app.dataManager);
+        console.log('   - mapCore:', !!window.app.mapCore);
+        console.log('   - mapCore.map:', window.app.mapCore?.map ? '✓' : '✗');
+        console.log('   - mapCore.currentImagePath:', window.app.mapCore?.currentImagePath);
+        console.log('   - polygonsEditor:', !!window.app.polygonsEditor);
+        console.log('   - routingEditor:', !!window.app.routingEditor);
         
-        // Делаем приложение доступным глобально для отладки
-        window.OfficeMapEditor = OfficeMapEditor;
-        
-        // Показываем приветственное сообщение
-        setTimeout(function() {
-            Utils.showNotification('Редактор карты офиса успешно загружен!', 'success');
-        }, 1000);
-        
-    } catch (error) {
-        console.error('Ошибка инициализации приложения:', error);
-        Utils.showNotification('Критическая ошибка загрузки приложения: ' + error.message, 'error');
-        
-        // Показываем сообщение об ошибке в интерфейсе
-        const statusElement = document.getElementById('status');
-        if (statusElement) {
-            statusElement.textContent = 'Ошибка загрузки приложения';
-            statusElement.style.color = '#e74c3c';
-        }
+        alert('✅ Приложение инициализировано\n\nПроверьте консоль для подробностей.');
+    } else {
+        alert('❌ Приложение НЕ инициализировано.\n\nПроверьте консоль на ошибки загрузки файлов.');
     }
-});
-
-// Обработка ошибок глобально
-window.addEventListener('error', function(event) {
-    console.error('Глобальная ошибка:', event.error);
-    Utils.showNotification('Произошла ошибка в приложении. Проверьте консоль.', 'error');
-});
-
-// Обработка обещаний без перехвата
-window.addEventListener('unhandledrejection', function(event) {
-    console.error('Необработанное обещание:', event.reason);
-    Utils.showNotification('Необработанная ошибка в асинхронном коде', 'error');
-});
+};
