@@ -170,4 +170,4 @@ Mobile Export: The mobile version generates a clean, simplified interface with l
 Data Backup: Your data is stored in localStorage. Clearing your browser cache will delete your map data. Use the Import/Export tab to create backups.
 
 📧 Contact
-Project Link: https://github.com/yourusername/office-map-editor
+Project Link: https://github.com/Diego-83/Office-map
