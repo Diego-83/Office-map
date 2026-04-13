@@ -37,8 +37,8 @@ A powerful, browser-based WYSIWYG editor for creating interactive office maps wi
 
 1.  **Clone the repository** (or download the source code):
     ```bash
-    git clone https://github.com/yourusername/office-map-editor.git
-    cd office-map-editor
+    git clone https://github.com/Diego-83/Office-map.git
+    cd Office-map
 
  2. Project Structure:
 Ensure your folder looks like this after setup:
