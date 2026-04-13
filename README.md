@@ -43,6 +43,7 @@ A powerful, browser-based WYSIWYG editor for creating interactive office maps wi
  2. Project Structure:
 Ensure your folder looks like this after setup:
 
+```text
 office-map-editor/
 ├── index.html
 ├── js/
@@ -59,7 +60,8 @@ office-map-editor/
 │   │   └── mobile-exporter.js
 │   └── main.js
 └── img/
-    └── plan.png (Your default floor plan)
+    └── plan.png
+```
 
     Add your floor plan: Place your floor plan image in the img/ folder and name it plan.png, or use the editor's UI to upload a new image.
 
